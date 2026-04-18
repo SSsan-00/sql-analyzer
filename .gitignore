@@ -1,0 +1,27 @@
+# .NET のビルド成果物
+bin/
+obj/
+
+# Visual Studio / Rider / VS Code の作業ファイル
+.vs/
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# テスト結果
+TestResults/
+coverage/
+coverage-results/
+*.coverage
+*.coveragexml
+
+# NuGet
+*.nupkg
+packages/
+
+# OS 固有ファイル
+.DS_Store
+Thumbs.db
