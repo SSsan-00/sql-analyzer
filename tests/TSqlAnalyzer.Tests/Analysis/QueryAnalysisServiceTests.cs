@@ -185,6 +185,48 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// 条件式の葉ノードが主要な述語種別へ分類されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_SelectWithVariousPredicates_ClassifiesPredicateKinds()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE u.Id = 1
+                             AND u.DeletedAt IS NULL
+                             AND u.Name LIKE 'A%'
+                             AND u.Score BETWEEN 1 AND 10
+                             AND EXISTS (
+                                 SELECT 1
+                                 FROM dbo.Orders o
+                                 WHERE o.UserId = u.Id
+                             )
+                             AND u.Id IN (
+                                 SELECT p.UserId
+                                 FROM dbo.PointUsers p
+                             );
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var where = Assert.IsType<ConditionAnalysis>(query.WhereCondition);
+        var predicateKinds = FlattenConditionNodes(where.RootNode)
+            .Where(node => node.NodeKind == ConditionNodeKind.Predicate)
+            .Select(node => node.PredicateKind)
+            .ToArray();
+
+        Assert.Contains(ConditionPredicateKind.Comparison, predicateKinds);
+        Assert.Contains(ConditionPredicateKind.NullCheck, predicateKinds);
+        Assert.Contains(ConditionPredicateKind.Like, predicateKinds);
+        Assert.Contains(ConditionPredicateKind.Between, predicateKinds);
+        Assert.Contains(ConditionPredicateKind.Exists, predicateKinds);
+        Assert.Contains(ConditionPredicateKind.In, predicateKinds);
+    }
+
+    /// <summary>
     /// 集合演算の種類を区別できることを確認する。
     /// </summary>
     [Theory]
@@ -423,5 +465,18 @@ public sealed class QueryAnalysisServiceTests
     private static QueryAnalysisService CreateService()
     {
         return new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+    }
+
+    private static IEnumerable<ConditionNodeAnalysis> FlattenConditionNodes(ConditionNodeAnalysis node)
+    {
+        yield return node;
+
+        foreach (var child in node.Children)
+        {
+            foreach (var nested in FlattenConditionNodes(child))
+            {
+                yield return nested;
+            }
+        }
     }
 }

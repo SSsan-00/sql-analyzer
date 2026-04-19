@@ -671,6 +671,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     nodeKind,
                     _textExtractor.Normalize(node),
                     [BuildNode(node.FirstExpression), BuildNode(node.SecondExpression)],
+                    ConditionPredicateKind.Unknown,
                     null);
             }
 
@@ -686,6 +687,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionNodeKind.Not,
                     _textExtractor.Normalize(node),
                     [BuildNode(innerExpression)],
+                    ConditionPredicateKind.Unknown,
                     null);
             }
 
@@ -707,6 +709,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionNodeKind.Predicate,
                     marker.DisplayText,
                     [],
+                    ConditionPredicateKind.Exists,
                     marker);
             }
 
@@ -725,6 +728,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionNodeKind.Predicate,
                     marker.DisplayText,
                     [],
+                    ConditionPredicateKind.In,
                     marker);
             }
 
@@ -736,7 +740,22 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionNodeKind.Predicate,
                     _textExtractor.Normalize(expression),
                     [],
+                    ClassifyPredicateKind(expression),
                     null);
+            }
+
+            private static ConditionPredicateKind ClassifyPredicateKind(BooleanExpression expression)
+            {
+                return expression switch
+                {
+                    BooleanComparisonExpression => ConditionPredicateKind.Comparison,
+                    BooleanIsNullExpression => ConditionPredicateKind.NullCheck,
+                    LikePredicate => ConditionPredicateKind.Like,
+                    BooleanTernaryExpression ternaryExpression when ternaryExpression.TernaryExpressionType is BooleanTernaryExpressionType.Between or BooleanTernaryExpressionType.NotBetween => ConditionPredicateKind.Between,
+                    ExistsPredicate => ConditionPredicateKind.Exists,
+                    InPredicate => ConditionPredicateKind.In,
+                    _ => ConditionPredicateKind.Unknown
+                };
             }
 
             private static BooleanExpression UnwrapParentheses(BooleanExpression expression)

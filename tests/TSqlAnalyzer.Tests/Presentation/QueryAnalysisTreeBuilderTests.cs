@@ -240,6 +240,41 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// 条件論理木の葉ノードに述語種別が表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForVariousPredicates_ContainsPredicateKindTexts()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE u.Id = 1
+                             AND u.DeletedAt IS NULL
+                             AND u.Name LIKE 'A%'
+                             AND u.Score BETWEEN 1 AND 10
+                             AND EXISTS (
+                                 SELECT 1
+                                 FROM dbo.Orders o
+                                 WHERE o.UserId = u.Id
+                             );
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("述語種別: 比較", flattenedTexts);
+        Assert.Contains("述語種別: NULL判定", flattenedTexts);
+        Assert.Contains("述語種別: LIKE", flattenedTexts);
+        Assert.Contains("述語種別: BETWEEN", flattenedTexts);
+        Assert.Contains("述語種別: EXISTS", flattenedTexts);
+    }
+
+    /// <summary>
     /// 入れ子の集合演算でも種別を追える TreeView になることを確認する。
     /// </summary>
     [Fact]

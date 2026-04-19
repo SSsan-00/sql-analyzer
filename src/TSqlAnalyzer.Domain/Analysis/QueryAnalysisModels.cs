@@ -87,6 +87,21 @@ public enum ConditionNodeKind
 }
 
 /// <summary>
+/// 条件式の述語種別。
+/// 比較・NULL 判定・LIKE などを分けておくと、巨大な WHERE を俯瞰しやすくなる。
+/// </summary>
+public enum ConditionPredicateKind
+{
+    Unknown,
+    Comparison,
+    NullCheck,
+    Like,
+    Between,
+    Exists,
+    In
+}
+
+/// <summary>
 /// UI に伝える注意情報の重要度。
 /// エラー・警告・補足を同一の仕組みで扱えるようにしている。
 /// </summary>
@@ -194,6 +209,7 @@ public sealed record ConditionNodeAnalysis(
     ConditionNodeKind NodeKind,
     string DisplayText,
     IReadOnlyList<ConditionNodeAnalysis> Children,
+    ConditionPredicateKind PredicateKind,
     ConditionMarker? Marker);
 
 /// <summary>

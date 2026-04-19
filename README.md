@@ -33,6 +33,7 @@
 - JOIN 表示を `種別 / 結合先 / ON条件` の形式で統一できる
 - 派生テーブルや JOIN 先サブクエリの内部構造を TreeView で追える
 - WHERE / HAVING 条件を `AND / OR / NOT` の論理木として表示できる
+- WHERE / HAVING 条件内の `比較 / NULL判定 / LIKE / BETWEEN / EXISTS / IN` を述語種別として表示できる
 - CTE の参照関係を `メインクエリ / 各CTE -> 参照先CTE` の形で表示できる
 - CTE の依存順と再帰的な参照を表示できる
 - TreeView 表示用の UI 非依存モデルへ変換できる
@@ -267,6 +268,7 @@ ORDER BY u.Id;
 - `主構造` 配下に `取得項目` `主テーブル` `結合` `抽出条件` `並び順` が出る
 - `結合` 配下に `JOIN #1` が出る
 - `抽出条件` 配下に `条件論理` が出る
+- `条件論理` 配下に `述語種別: EXISTS` などの種別表示が出る
 - `共通テーブル式` 配下に `参照関係` が出る
 - `共通テーブル式` 配下に `依存順` が出る
 - `サブクエリ` 配下に WHERE 句由来のサブクエリが出る
@@ -341,6 +343,7 @@ dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.c
 - `src/TSqlAnalyzer.Domain/Analysis/QueryAnalysisModels.cs`
 - `src/TSqlAnalyzer.Application/TSqlAnalyzer.Application.csproj`
 - `src/TSqlAnalyzer.Application/Analysis/ISqlQueryAnalyzer.cs`
+- `src/TSqlAnalyzer.Application/Analysis/CommonTableExpressionDependencyAnalyzer.cs`
 - `src/TSqlAnalyzer.Application/Analysis/ScriptDomQueryAnalyzer.cs`
 - `src/TSqlAnalyzer.Application/Presentation/DisplayTreeNode.cs`
 - `src/TSqlAnalyzer.Application/Presentation/QueryAnalysisTreeBuilder.cs`

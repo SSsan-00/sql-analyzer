@@ -441,7 +441,8 @@ public sealed class QueryAnalysisTreeBuilder
         {
             var children = new List<DisplayTreeNode>
             {
-                Node($"式: {node.DisplayText}")
+                Node($"式: {node.DisplayText}"),
+                Node($"述語種別: {BuildPredicateKindText(node.PredicateKind)}")
             };
 
             if (node.Marker is not null)
@@ -494,6 +495,23 @@ public sealed class QueryAnalysisTreeBuilder
             ConditionNodeKind.Not => "NOT",
             ConditionNodeKind.Predicate when node.Marker is not null => BuildMarkerText(node.Marker.MarkerType),
             _ => "条件"
+        };
+    }
+
+    /// <summary>
+    /// 述語種別の表示名を返す。
+    /// </summary>
+    private static string BuildPredicateKindText(ConditionPredicateKind predicateKind)
+    {
+        return predicateKind switch
+        {
+            ConditionPredicateKind.Comparison => "比較",
+            ConditionPredicateKind.NullCheck => "NULL判定",
+            ConditionPredicateKind.Like => "LIKE",
+            ConditionPredicateKind.Between => "BETWEEN",
+            ConditionPredicateKind.Exists => "EXISTS",
+            ConditionPredicateKind.In => "IN",
+            _ => "不明"
         };
     }
 
