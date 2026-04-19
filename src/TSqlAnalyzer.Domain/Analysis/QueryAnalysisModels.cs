@@ -102,6 +102,25 @@ public enum ConditionPredicateKind
 }
 
 /// <summary>
+/// 比較述語の演算子種別。
+/// 比較系だけを別軸で持たせることで、「比較」と分かった後に何比較なのかまで辿れる。
+/// </summary>
+public enum ConditionComparisonKind
+{
+    Unknown,
+    Equal,
+    NotEqual,
+    GreaterThan,
+    LessThan,
+    GreaterThanOrEqual,
+    LessThanOrEqual,
+    NotLessThan,
+    NotGreaterThan,
+    IsDistinctFrom,
+    IsNotDistinctFrom
+}
+
+/// <summary>
 /// UI に伝える注意情報の重要度。
 /// エラー・警告・補足を同一の仕組みで扱えるようにしている。
 /// </summary>
@@ -210,6 +229,7 @@ public sealed record ConditionNodeAnalysis(
     string DisplayText,
     IReadOnlyList<ConditionNodeAnalysis> Children,
     ConditionPredicateKind PredicateKind,
+    ConditionComparisonKind ComparisonKind,
     ConditionMarker? Marker);
 
 /// <summary>

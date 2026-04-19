@@ -227,6 +227,37 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// 比較述語では演算子の種類まで保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_SelectWithComparisonOperators_ClassifiesComparisonKinds()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE u.Id = 1
+                             AND u.Score >= 80
+                             AND u.Status <> 'Deleted'
+                             AND u.Level < 5;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var where = Assert.IsType<ConditionAnalysis>(query.WhereCondition);
+        var comparisonKinds = FlattenConditionNodes(where.RootNode)
+            .Where(node => node.NodeKind == ConditionNodeKind.Predicate && node.PredicateKind == ConditionPredicateKind.Comparison)
+            .Select(node => node.ComparisonKind)
+            .ToArray();
+
+        Assert.Contains(ConditionComparisonKind.Equal, comparisonKinds);
+        Assert.Contains(ConditionComparisonKind.GreaterThanOrEqual, comparisonKinds);
+        Assert.Contains(ConditionComparisonKind.NotEqual, comparisonKinds);
+        Assert.Contains(ConditionComparisonKind.LessThan, comparisonKinds);
+    }
+
+    /// <summary>
     /// 集合演算の種類を区別できることを確認する。
     /// </summary>
     [Theory]

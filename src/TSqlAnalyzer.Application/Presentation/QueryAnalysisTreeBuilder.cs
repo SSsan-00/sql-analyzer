@@ -445,6 +445,11 @@ public sealed class QueryAnalysisTreeBuilder
                 Node($"述語種別: {BuildPredicateKindText(node.PredicateKind)}")
             };
 
+            if (node.PredicateKind == ConditionPredicateKind.Comparison)
+            {
+                children.Add(Node($"比較種別: {BuildComparisonKindText(node.ComparisonKind)}"));
+            }
+
             if (node.Marker is not null)
             {
                 children.Add(Node($"種別: {BuildMarkerText(node.Marker.MarkerType)}"));
@@ -511,6 +516,27 @@ public sealed class QueryAnalysisTreeBuilder
             ConditionPredicateKind.Between => "BETWEEN",
             ConditionPredicateKind.Exists => "EXISTS",
             ConditionPredicateKind.In => "IN",
+            _ => "不明"
+        };
+    }
+
+    /// <summary>
+    /// 比較演算子種別の表示名を返す。
+    /// </summary>
+    private static string BuildComparisonKindText(ConditionComparisonKind comparisonKind)
+    {
+        return comparisonKind switch
+        {
+            ConditionComparisonKind.Equal => "等価 (=)",
+            ConditionComparisonKind.NotEqual => "不等価 (<>)",
+            ConditionComparisonKind.GreaterThan => "より大きい (>)",
+            ConditionComparisonKind.LessThan => "より小さい (<)",
+            ConditionComparisonKind.GreaterThanOrEqual => "以上 (>=)",
+            ConditionComparisonKind.LessThanOrEqual => "以下 (<=)",
+            ConditionComparisonKind.NotLessThan => "未満ではない (!<)",
+            ConditionComparisonKind.NotGreaterThan => "超過ではない (!>)",
+            ConditionComparisonKind.IsDistinctFrom => "IS DISTINCT FROM",
+            ConditionComparisonKind.IsNotDistinctFrom => "IS NOT DISTINCT FROM",
             _ => "不明"
         };
     }

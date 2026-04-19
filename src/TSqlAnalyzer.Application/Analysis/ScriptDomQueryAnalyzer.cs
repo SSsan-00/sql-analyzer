@@ -672,6 +672,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     _textExtractor.Normalize(node),
                     [BuildNode(node.FirstExpression), BuildNode(node.SecondExpression)],
                     ConditionPredicateKind.Unknown,
+                    ConditionComparisonKind.Unknown,
                     null);
             }
 
@@ -688,6 +689,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     _textExtractor.Normalize(node),
                     [BuildNode(innerExpression)],
                     ConditionPredicateKind.Unknown,
+                    ConditionComparisonKind.Unknown,
                     null);
             }
 
@@ -710,6 +712,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     marker.DisplayText,
                     [],
                     ConditionPredicateKind.Exists,
+                    ConditionComparisonKind.Unknown,
                     marker);
             }
 
@@ -729,6 +732,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     marker.DisplayText,
                     [],
                     ConditionPredicateKind.In,
+                    ConditionComparisonKind.Unknown,
                     marker);
             }
 
@@ -741,6 +745,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     _textExtractor.Normalize(expression),
                     [],
                     ClassifyPredicateKind(expression),
+                    ClassifyComparisonKind(expression),
                     null);
             }
 
@@ -755,6 +760,30 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ExistsPredicate => ConditionPredicateKind.Exists,
                     InPredicate => ConditionPredicateKind.In,
                     _ => ConditionPredicateKind.Unknown
+                };
+            }
+
+            private static ConditionComparisonKind ClassifyComparisonKind(BooleanExpression expression)
+            {
+                if (expression is not BooleanComparisonExpression comparisonExpression)
+                {
+                    return ConditionComparisonKind.Unknown;
+                }
+
+                return comparisonExpression.ComparisonType switch
+                {
+                    BooleanComparisonType.Equals => ConditionComparisonKind.Equal,
+                    BooleanComparisonType.NotEqualToBrackets => ConditionComparisonKind.NotEqual,
+                    BooleanComparisonType.NotEqualToExclamation => ConditionComparisonKind.NotEqual,
+                    BooleanComparisonType.GreaterThan => ConditionComparisonKind.GreaterThan,
+                    BooleanComparisonType.LessThan => ConditionComparisonKind.LessThan,
+                    BooleanComparisonType.GreaterThanOrEqualTo => ConditionComparisonKind.GreaterThanOrEqual,
+                    BooleanComparisonType.LessThanOrEqualTo => ConditionComparisonKind.LessThanOrEqual,
+                    BooleanComparisonType.NotLessThan => ConditionComparisonKind.NotLessThan,
+                    BooleanComparisonType.NotGreaterThan => ConditionComparisonKind.NotGreaterThan,
+                    BooleanComparisonType.IsDistinctFrom => ConditionComparisonKind.IsDistinctFrom,
+                    BooleanComparisonType.IsNotDistinctFrom => ConditionComparisonKind.IsNotDistinctFrom,
+                    _ => ConditionComparisonKind.Unknown
                 };
             }
 

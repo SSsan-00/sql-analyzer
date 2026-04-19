@@ -275,6 +275,33 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// 比較述語では比較演算子の種類も表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForComparisonPredicates_ContainsComparisonKindTexts()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE u.Id = 1
+                             AND u.Score >= 80
+                             AND u.Status <> 'Deleted';
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("比較種別: 等価 (=)", flattenedTexts);
+        Assert.Contains("比較種別: 以上 (>=)", flattenedTexts);
+        Assert.Contains("比較種別: 不等価 (<>)", flattenedTexts);
+    }
+
+    /// <summary>
     /// 入れ子の集合演算でも種別を追える TreeView になることを確認する。
     /// </summary>
     [Fact]
