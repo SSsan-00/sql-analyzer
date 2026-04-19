@@ -37,6 +37,17 @@ public enum SelectItemKind
 }
 
 /// <summary>
+/// SELECT ワイルドカード項目の種別。
+/// `*` と `table.*` を分けると、取得範囲の違いを追いやすくなる。
+/// </summary>
+public enum SelectWildcardKind
+{
+    None,
+    AllColumns,
+    QualifiedAllColumns
+}
+
+/// <summary>
 /// JOIN の種別。
 /// 画面表示では文字列も保持するが、内部判定用に enum も持たせる。
 /// </summary>
@@ -239,7 +250,9 @@ public sealed record SelectItemAnalysis(
     SelectItemKind Kind,
     string ExpressionText,
     string? Alias,
-    string? AggregateFunctionName);
+    string? AggregateFunctionName,
+    SelectWildcardKind WildcardKind,
+    string? WildcardQualifier);
 
 /// <summary>
 /// FROM 句や JOIN 先として使われるソースを表す。

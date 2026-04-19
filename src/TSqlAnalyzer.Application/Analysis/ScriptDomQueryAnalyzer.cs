@@ -288,27 +288,35 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     SelectItemKind.Expression,
                     _textExtractor.Normalize(scalarExpression.Expression),
                     BuildSelectItemAlias(scalarExpression.ColumnName),
-                    DetectAggregateFunctionName(scalarExpression.Expression)),
+                    DetectAggregateFunctionName(scalarExpression.Expression),
+                    SelectWildcardKind.None,
+                    null),
                 SelectStarExpression starExpression => new SelectItemAnalysis(
                     sequence,
                     _textExtractor.Normalize(starExpression),
                     SelectItemKind.Wildcard,
                     _textExtractor.Normalize(starExpression),
                     null,
-                    null),
+                    null,
+                    starExpression.Qualifier is null ? SelectWildcardKind.AllColumns : SelectWildcardKind.QualifiedAllColumns,
+                    starExpression.Qualifier is null ? null : _textExtractor.Normalize(starExpression.Qualifier)),
                 SelectSetVariable setVariable => new SelectItemAnalysis(
                     sequence,
                     _textExtractor.Normalize(setVariable),
                     SelectItemKind.VariableAssignment,
                     _textExtractor.Normalize(setVariable.Expression),
                     _textExtractor.Normalize(setVariable.Variable),
-                    DetectAggregateFunctionName(setVariable.Expression)),
+                    DetectAggregateFunctionName(setVariable.Expression),
+                    SelectWildcardKind.None,
+                    null),
                 _ => new SelectItemAnalysis(
                     sequence,
                     _textExtractor.Normalize(element),
                     SelectItemKind.Unknown,
                     _textExtractor.Normalize(element),
                     null,
+                    null,
+                    SelectWildcardKind.None,
                     null)
             };
         }

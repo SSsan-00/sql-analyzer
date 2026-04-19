@@ -78,6 +78,32 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// ワイルドカード項目で全列種別と修飾子が表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForWildcardSelectItems_ContainsWildcardTexts()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               *,
+                               u.*
+                           FROM dbo.Users u;
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("種別: ワイルドカード", flattenedTexts);
+        Assert.Contains("全列種別: 全列", flattenedTexts);
+        Assert.Contains("全列種別: 修飾付き全列", flattenedTexts);
+        Assert.Contains("修飾子: u", flattenedTexts);
+    }
+
+    /// <summary>
     /// 空入力時も TreeView に返せる最低限のノードが生成されることを確認する。
     /// </summary>
     [Fact]

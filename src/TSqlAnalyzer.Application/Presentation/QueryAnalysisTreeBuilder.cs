@@ -153,13 +153,31 @@ public sealed class QueryAnalysisTreeBuilder
         return Node(
             "取得項目",
             query.SelectItems
-                .Select(item => Node(
-                    $"項目 #{item.Sequence}: {item.DisplayText}",
-                    Node($"種別: {BuildSelectItemKindText(item.Kind)}"),
-                    Node($"式: {item.ExpressionText}"),
-                    Node($"別名: {item.Alias ?? "なし"}"),
-                    Node($"集計関数: {item.AggregateFunctionName ?? "なし"}")))
+                .Select(BuildSelectItemNode)
                 .ToArray());
+    }
+
+    /// <summary>
+    /// SELECT 項目 1 件分のノードを作る。
+    /// ワイルドカード項目では全列種別と修飾子も表示する。
+    /// </summary>
+    private static DisplayTreeNode BuildSelectItemNode(SelectItemAnalysis item)
+    {
+        var children = new List<DisplayTreeNode>
+        {
+            Node($"種別: {BuildSelectItemKindText(item.Kind)}"),
+            Node($"式: {item.ExpressionText}"),
+            Node($"別名: {item.Alias ?? "なし"}"),
+            Node($"集計関数: {item.AggregateFunctionName ?? "なし"}")
+        };
+
+        if (item.Kind == SelectItemKind.Wildcard)
+        {
+            children.Add(Node($"全列種別: {BuildSelectWildcardKindText(item.WildcardKind)}"));
+            children.Add(Node($"修飾子: {item.WildcardQualifier ?? "なし"}"));
+        }
+
+        return Node($"項目 #{item.Sequence}: {item.DisplayText}", children.ToArray());
     }
 
     /// <summary>
@@ -614,6 +632,19 @@ public sealed class QueryAnalysisTreeBuilder
             SelectItemKind.Wildcard => "ワイルドカード",
             SelectItemKind.VariableAssignment => "変数代入",
             _ => "不明"
+        };
+    }
+
+    /// <summary>
+    /// SELECT ワイルドカード種別の表示名を返す。
+    /// </summary>
+    private static string BuildSelectWildcardKindText(SelectWildcardKind kind)
+    {
+        return kind switch
+        {
+            SelectWildcardKind.AllColumns => "全列",
+            SelectWildcardKind.QualifiedAllColumns => "修飾付き全列",
+            _ => "なし"
         };
     }
 

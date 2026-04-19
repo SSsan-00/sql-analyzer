@@ -77,6 +77,34 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// SELECT * と table.* を区別して保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_SelectWithWildcardColumns_ReturnsWildcardDetails()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               *,
+                               u.*
+                           FROM dbo.Users u;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+
+        Assert.Equal(2, query.SelectItems.Count);
+
+        Assert.Equal(SelectItemKind.Wildcard, query.SelectItems[0].Kind);
+        Assert.Equal(SelectWildcardKind.AllColumns, query.SelectItems[0].WildcardKind);
+        Assert.Null(query.SelectItems[0].WildcardQualifier);
+
+        Assert.Equal(SelectItemKind.Wildcard, query.SelectItems[1].Kind);
+        Assert.Equal(SelectWildcardKind.QualifiedAllColumns, query.SelectItems[1].WildcardKind);
+        Assert.Equal("u", query.SelectItems[1].WildcardQualifier);
+    }
+
+    /// <summary>
     /// JOIN 表示に必要な最小情報が正しく構築されることを確認する。
     /// </summary>
     [Fact]
