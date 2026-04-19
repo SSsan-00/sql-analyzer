@@ -12,6 +12,9 @@
 - `Microsoft.SqlServer.TransactSql.ScriptDom` を使って T-SQL を構文解析できる
 - 次の構造を独自モデルとして保持できる
   - SELECT
+  - UPDATE
+  - INSERT
+  - DELETE
   - FROM
   - JOIN
     - INNER JOIN
@@ -35,6 +38,10 @@
 - 集合演算ノードで `左概要 / 右概要 / 子集合演算数` を表示し、左右差を先に把握できる
 - SELECT 項目で `種別 / 式 / 別名 / 集計関数` を分解表示できる
 - `SELECT *` と `table.*` を区別し、`全列種別 / 修飾子` を表示できる
+- UPDATE 文で `更新対象 / 更新内容 / 参照ソース / 結合 / 抽出条件 / 出力` を表示できる
+- INSERT 文で `挿入対象 / 挿入列 / 入力元 / 出力` を表示できる
+- DELETE 文で `削除対象 / 参照ソース / 結合 / 抽出条件 / 出力` を表示できる
+- INSERT 入力元では `VALUES / SELECT / EXECUTE` を区別できる
 - WHERE / HAVING 条件を `AND / OR / NOT` の論理木として表示できる
 - WHERE / HAVING 条件で明示的に括弧で囲まれた条件グループを表示できる
 - WHERE / HAVING 条件内の `比較 / NULL判定 / LIKE / BETWEEN / EXISTS / IN` を述語種別として表示できる
@@ -48,6 +55,9 @@
 ## この初期版でまだ未対応のこと
 
 - MERGE の詳細解析
+- UPDATE / INSERT / DELETE の `OUTPUT` 句詳細分解
+- INSERT ... EXECUTE の実行結果解析
+- UPDATE / DELETE 対象の別名や特殊ターゲット構文の詳細分類
 - PIVOT / UNPIVOT
 - APPLY の正式対応
   - 現状は補足的な注意表示に留める
@@ -384,6 +394,7 @@ dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.c
 - 単純な SELECT の解析
 - JOIN を含む SELECT の解析
 - WHERE を含む SELECT の解析
+- UPDATE / INSERT / DELETE の解析
 - EXISTS の検出
 - IN / NOT IN の検出
 - UNION / UNION ALL / EXCEPT / INTERSECT の識別

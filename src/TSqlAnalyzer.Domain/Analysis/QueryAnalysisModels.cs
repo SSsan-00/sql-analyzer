@@ -10,6 +10,9 @@ public enum QueryStatementCategory
     Empty,
     Select,
     SetOperation,
+    Update,
+    Insert,
+    Delete,
     Unsupported,
     ParseError
 }
@@ -83,6 +86,29 @@ public enum SetOperationType
     UnionAll,
     Except,
     Intersect
+}
+
+/// <summary>
+/// DML 文の種別。
+/// UPDATE / INSERT / DELETE を独立して持たせることで、画面側の主構造切り替えを単純化する。
+/// </summary>
+public enum DataModificationKind
+{
+    Update,
+    Insert,
+    Delete
+}
+
+/// <summary>
+/// INSERT の入力元種別。
+/// VALUES / SELECT / EXECUTE を区別すると、挿入元の追い方が分かりやすくなる。
+/// </summary>
+public enum InsertSourceKind
+{
+    Values,
+    Query,
+    Execute,
+    Unknown
 }
 
 /// <summary>
@@ -196,7 +222,8 @@ public sealed record QueryAnalysisResult(
     IReadOnlyList<CommonTableExpressionAnalysis> CommonTableExpressions,
     QueryExpressionAnalysis? Query,
     IReadOnlyList<ParseIssue> ParseIssues,
-    IReadOnlyList<AnalysisNotice> Notices);
+    IReadOnlyList<AnalysisNotice> Notices,
+    DataModificationAnalysis? DataModification = null);
 
 /// <summary>
 /// SELECT 系解析結果の再帰的な基底型。
@@ -239,6 +266,103 @@ public sealed record SetOperationQueryAnalysis(
     QueryExpressionAnalysis LeftQuery,
     QueryExpressionAnalysis RightQuery)
     : QueryExpressionAnalysis(QueryExpressionKind.SetOperation);
+
+/// <summary>
+/// UPDATE / INSERT / DELETE の共通情報を表す基底型。
+/// 対象・TOP・OUTPUT・サブクエリは DML 間で共通になりやすいため、ここへ寄せる。
+/// </summary>
+public abstract record DataModificationAnalysis(
+    DataModificationKind Kind,
+    SourceAnalysis Target,
+    string? TopExpressionText,
+    string? OutputClauseText,
+    string? OutputIntoClauseText,
+    IReadOnlyList<SubqueryAnalysis> Subqueries);
+
+/// <summary>
+/// UPDATE 文の構造を表す。
+/// 対象、SET、FROM / JOIN、WHERE を分けて保持し、後から表示粒度を上げやすくする。
+/// </summary>
+public sealed record UpdateStatementAnalysis(
+    SourceAnalysis Target,
+    string? TopExpressionText,
+    IReadOnlyList<UpdateSetClauseAnalysis> SetClauses,
+    SourceAnalysis? MainSource,
+    IReadOnlyList<JoinAnalysis> Joins,
+    ConditionAnalysis? WhereCondition,
+    string? OutputClauseText,
+    string? OutputIntoClauseText,
+    IReadOnlyList<SubqueryAnalysis> Subqueries)
+    : DataModificationAnalysis(
+        DataModificationKind.Update,
+        Target,
+        TopExpressionText,
+        OutputClauseText,
+        OutputIntoClauseText,
+        Subqueries);
+
+/// <summary>
+/// INSERT 文の構造を表す。
+/// 挿入先列と入力元を分けて持たせることで、VALUES と SELECT の違いを表示しやすくする。
+/// </summary>
+public sealed record InsertStatementAnalysis(
+    SourceAnalysis Target,
+    string? TopExpressionText,
+    string? InsertOptionText,
+    IReadOnlyList<string> TargetColumns,
+    InsertSourceAnalysis? InsertSource,
+    string? OutputClauseText,
+    string? OutputIntoClauseText,
+    IReadOnlyList<SubqueryAnalysis> Subqueries)
+    : DataModificationAnalysis(
+        DataModificationKind.Insert,
+        Target,
+        TopExpressionText,
+        OutputClauseText,
+        OutputIntoClauseText,
+        Subqueries);
+
+/// <summary>
+/// DELETE 文の構造を表す。
+/// 対象、FROM / JOIN、WHERE を独立して持たせることで、UPDATE と似た見せ方を再利用できる。
+/// </summary>
+public sealed record DeleteStatementAnalysis(
+    SourceAnalysis Target,
+    string? TopExpressionText,
+    SourceAnalysis? MainSource,
+    IReadOnlyList<JoinAnalysis> Joins,
+    ConditionAnalysis? WhereCondition,
+    string? OutputClauseText,
+    string? OutputIntoClauseText,
+    IReadOnlyList<SubqueryAnalysis> Subqueries)
+    : DataModificationAnalysis(
+        DataModificationKind.Delete,
+        Target,
+        TopExpressionText,
+        OutputClauseText,
+        OutputIntoClauseText,
+        Subqueries);
+
+/// <summary>
+/// UPDATE の SET 句 1 件分を表す。
+/// 列名と値式を分けて持たせることで、TreeView で更新内容を整理して並べやすくする。
+/// </summary>
+public sealed record UpdateSetClauseAnalysis(
+    int Sequence,
+    string DisplayText,
+    string TargetText,
+    string ValueText);
+
+/// <summary>
+/// INSERT の入力元情報。
+/// SELECT 由来か VALUES 由来かを区別しつつ、必要なら内部クエリも保持する。
+/// </summary>
+public sealed record InsertSourceAnalysis(
+    InsertSourceKind SourceKind,
+    string DisplayText,
+    IReadOnlyList<string> Items,
+    QueryExpressionAnalysis? Query,
+    string? ExecuteText);
 
 /// <summary>
 /// SELECT 項目を表す。

@@ -24,6 +24,7 @@ packages/
 
 # bootstrap 展開物
 bootstrap/extracted/
+.tmp/
 
 # OS 固有ファイル
 .DS_Store

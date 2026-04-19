@@ -35,6 +35,32 @@ internal static class CommonTableExpressionDependencyAnalyzer
     }
 
     /// <summary>
+    /// 指定 DML 文以下で参照されている CTE 名を重複なく返す。
+    /// knownNames がある場合は、その集合に含まれる名前だけへ絞る。
+    /// </summary>
+    public static IReadOnlyList<string> GetReferencedNames(
+        DataModificationAnalysis? dataModification,
+        ISet<string>? knownNames = null)
+    {
+        if (dataModification is null)
+        {
+            return [];
+        }
+
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectReferencedNames(dataModification, names);
+
+        if (knownNames is not null)
+        {
+            names.RemoveWhere(name => !knownNames.Contains(name));
+        }
+
+        return names
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <summary>
     /// CTE 一覧から依存順と循環対象を計算する。
     /// 依存順は Kahn 法で求め、取り切れなかった名前を循環として返す。
     /// </summary>
@@ -126,6 +152,47 @@ internal static class CommonTableExpressionDependencyAnalyzer
                 CollectReferencedNames(setOperationQuery.LeftQuery, names);
                 CollectReferencedNames(setOperationQuery.RightQuery, names);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// DML 文以下から参照されている CTE 名を蓄積する。
+    /// 対象、FROM / JOIN、入力元クエリ、サブクエリを横断して集める。
+    /// </summary>
+    private static void CollectReferencedNames(DataModificationAnalysis dataModification, ISet<string> names)
+    {
+        AddSourceReference(dataModification.Target, names);
+
+        switch (dataModification)
+        {
+            case UpdateStatementAnalysis updateStatement:
+                AddSourceReference(updateStatement.MainSource, names);
+
+                foreach (var join in updateStatement.Joins)
+                {
+                    AddSourceReference(join.TargetSource, names);
+                }
+
+                break;
+
+            case InsertStatementAnalysis insertStatement when insertStatement.InsertSource?.Query is not null:
+                CollectReferencedNames(insertStatement.InsertSource.Query, names);
+                break;
+
+            case DeleteStatementAnalysis deleteStatement:
+                AddSourceReference(deleteStatement.MainSource, names);
+
+                foreach (var join in deleteStatement.Joins)
+                {
+                    AddSourceReference(join.TargetSource, names);
+                }
+
+                break;
+        }
+
+        foreach (var subquery in dataModification.Subqueries)
+        {
+            CollectReferencedNames(subquery.Query, names);
         }
     }
 

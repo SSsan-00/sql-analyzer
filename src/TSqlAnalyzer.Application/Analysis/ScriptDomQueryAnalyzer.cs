@@ -57,31 +57,20 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 notices);
         }
 
-        if (statement is not SelectStatement selectStatement || selectStatement.QueryExpression is null)
-        {
-            notices.Add(new AnalysisNotice(AnalysisNoticeLevel.Warning, "初期版では SELECT 系以外の文は未対応です。"));
-
-            return new QueryAnalysisResult(
-                QueryStatementCategory.Unsupported,
-                [],
-                null,
-                [],
-                notices);
-        }
-
-        if (selectStatement.WithCtesAndXmlNamespaces?.XmlNamespaces is not null)
+        if (statement is StatementWithCtesAndXmlNamespaces statementWithCtes
+            && statementWithCtes.WithCtesAndXmlNamespaces?.XmlNamespaces is not null)
         {
             notices.Add(new AnalysisNotice(
                 AnalysisNoticeLevel.Information,
                 "XML 名前空間定義が含まれています。初期版ではクエリ本体と CTE を優先して表示します。"));
         }
 
-        var commonTableExpressionNames = selectStatement.WithCtesAndXmlNamespaces?.CommonTableExpressions?
+        var withClause = (statement as StatementWithCtesAndXmlNamespaces)?.WithCtesAndXmlNamespaces;
+        var commonTableExpressionNames = withClause?.CommonTableExpressions?
             .Select(commonTableExpression => commonTableExpression.ExpressionName.Value)
             .ToArray() ?? [];
         var core = new AnalyzerCore(sql, notices, commonTableExpressionNames);
-        var commonTableExpressions = core.AnalyzeCommonTableExpressions(selectStatement.WithCtesAndXmlNamespaces);
-        var query = core.AnalyzeQueryExpression(selectStatement.QueryExpression);
+        var commonTableExpressions = core.AnalyzeCommonTableExpressions(withClause);
         var dependencyReport = CommonTableExpressionDependencyAnalyzer.Analyze(commonTableExpressions);
         if (dependencyReport.CyclicNames.Count > 0)
         {
@@ -90,11 +79,45 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 $"再帰または循環する CTE 参照が含まれています: {string.Join(", ", dependencyReport.CyclicNames)}"));
         }
 
-        var category = query.Kind == QueryExpressionKind.SetOperation
-            ? QueryStatementCategory.SetOperation
-            : QueryStatementCategory.Select;
+        QueryExpressionAnalysis? query = null;
+        DataModificationAnalysis? dataModification = null;
+        QueryStatementCategory category;
 
-        return new QueryAnalysisResult(category, commonTableExpressions, query, [], notices);
+        switch (statement)
+        {
+            case SelectStatement selectStatement when selectStatement.QueryExpression is not null:
+                query = core.AnalyzeQueryExpression(selectStatement.QueryExpression);
+                category = query.Kind == QueryExpressionKind.SetOperation
+                    ? QueryStatementCategory.SetOperation
+                    : QueryStatementCategory.Select;
+                break;
+
+            case UpdateStatement updateStatement when updateStatement.UpdateSpecification is not null:
+                dataModification = core.AnalyzeUpdate(updateStatement.UpdateSpecification);
+                category = QueryStatementCategory.Update;
+                break;
+
+            case InsertStatement insertStatement when insertStatement.InsertSpecification is not null:
+                dataModification = core.AnalyzeInsert(insertStatement.InsertSpecification);
+                category = QueryStatementCategory.Insert;
+                break;
+
+            case DeleteStatement deleteStatement when deleteStatement.DeleteSpecification is not null:
+                dataModification = core.AnalyzeDelete(deleteStatement.DeleteSpecification);
+                category = QueryStatementCategory.Delete;
+                break;
+
+            default:
+                notices.Add(new AnalysisNotice(AnalysisNoticeLevel.Warning, "初期版ではこの文種別は未対応です。"));
+                return new QueryAnalysisResult(
+                    QueryStatementCategory.Unsupported,
+                    commonTableExpressions,
+                    null,
+                    [],
+                    notices);
+        }
+
+        return new QueryAnalysisResult(category, commonTableExpressions, query, [], notices, dataModification);
     }
 
     /// <summary>
@@ -276,6 +299,103 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         }
 
         /// <summary>
+        /// UPDATE 文を解析する。
+        /// 既存の FROM / JOIN / WHERE 解析を再利用しつつ、SET と対象を加える。
+        /// </summary>
+        public UpdateStatementAnalysis AnalyzeUpdate(UpdateSpecification updateSpecification)
+        {
+            var target = AnalyzeSource(updateSpecification.Target, "UPDATE対象");
+            var subqueries = new SubqueryAccumulator(_textExtractor);
+            subqueries.AddRange(target.Subqueries);
+
+            var fromResult = AnalyzeFromClause(updateSpecification.FromClause, subqueries);
+            var setClauses = updateSpecification.SetClauses
+                .Select((setClause, index) => AnalyzeUpdateSetClause(setClause, index + 1, subqueries))
+                .ToArray();
+
+            ConditionAnalysis? whereCondition = null;
+            if (updateSpecification.WhereClause?.SearchCondition is { } searchCondition)
+            {
+                whereCondition = AnalyzeCondition(searchCondition, "WHERE句", subqueries);
+            }
+
+            CollectImmediateSubqueries(updateSpecification.OutputClause, "OUTPUT句", subqueries);
+            CollectImmediateSubqueries(updateSpecification.OutputIntoClause, "OUTPUT INTO句", subqueries);
+
+            return new UpdateStatementAnalysis(
+                target.Source,
+                BuildTopExpression(updateSpecification.TopRowFilter),
+                setClauses,
+                fromResult.MainSource,
+                fromResult.Joins,
+                whereCondition,
+                NormalizeOrNull(updateSpecification.OutputClause),
+                NormalizeOrNull(updateSpecification.OutputIntoClause),
+                subqueries.ToArray());
+        }
+
+        /// <summary>
+        /// INSERT 文を解析する。
+        /// 挿入先列と入力元を分けて保持し、VALUES と SELECT の両方へ対応する。
+        /// </summary>
+        public InsertStatementAnalysis AnalyzeInsert(InsertSpecification insertSpecification)
+        {
+            var target = AnalyzeSource(insertSpecification.Target, "INSERT対象");
+            var subqueries = new SubqueryAccumulator(_textExtractor);
+            subqueries.AddRange(target.Subqueries);
+
+            var targetColumns = insertSpecification.Columns?
+                .Select(column => _textExtractor.Normalize(column))
+                .ToArray() ?? [];
+            var insertSource = AnalyzeInsertSource(insertSpecification.InsertSource, subqueries);
+
+            CollectImmediateSubqueries(insertSpecification.OutputClause, "OUTPUT句", subqueries);
+            CollectImmediateSubqueries(insertSpecification.OutputIntoClause, "OUTPUT INTO句", subqueries);
+
+            return new InsertStatementAnalysis(
+                target.Source,
+                BuildTopExpression(insertSpecification.TopRowFilter),
+                BuildInsertOptionText(insertSpecification),
+                targetColumns,
+                insertSource,
+                NormalizeOrNull(insertSpecification.OutputClause),
+                NormalizeOrNull(insertSpecification.OutputIntoClause),
+                subqueries.ToArray());
+        }
+
+        /// <summary>
+        /// DELETE 文を解析する。
+        /// UPDATE と同様に対象と FROM / JOIN / WHERE を分離して保持する。
+        /// </summary>
+        public DeleteStatementAnalysis AnalyzeDelete(DeleteSpecification deleteSpecification)
+        {
+            var target = AnalyzeSource(deleteSpecification.Target, "DELETE対象");
+            var subqueries = new SubqueryAccumulator(_textExtractor);
+            subqueries.AddRange(target.Subqueries);
+
+            var fromResult = AnalyzeFromClause(deleteSpecification.FromClause, subqueries);
+
+            ConditionAnalysis? whereCondition = null;
+            if (deleteSpecification.WhereClause?.SearchCondition is { } searchCondition)
+            {
+                whereCondition = AnalyzeCondition(searchCondition, "WHERE句", subqueries);
+            }
+
+            CollectImmediateSubqueries(deleteSpecification.OutputClause, "OUTPUT句", subqueries);
+            CollectImmediateSubqueries(deleteSpecification.OutputIntoClause, "OUTPUT INTO句", subqueries);
+
+            return new DeleteStatementAnalysis(
+                target.Source,
+                BuildTopExpression(deleteSpecification.TopRowFilter),
+                fromResult.MainSource,
+                fromResult.Joins,
+                whereCondition,
+                NormalizeOrNull(deleteSpecification.OutputClause),
+                NormalizeOrNull(deleteSpecification.OutputIntoClause),
+                subqueries.ToArray());
+        }
+
+        /// <summary>
         /// SELECT 項目を表示向けの詳細モデルへ変換する。
         /// </summary>
         private SelectItemAnalysis AnalyzeSelectItem(SelectElement element, int sequence)
@@ -319,6 +439,108 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     SelectWildcardKind.None,
                     null)
             };
+        }
+
+        /// <summary>
+        /// SET 句 1 件分を表示向けへ変換する。
+        /// 代入先と値を分けられない場合でも、全文だけは失わないようにする。
+        /// </summary>
+        private UpdateSetClauseAnalysis AnalyzeUpdateSetClause(SetClause setClause, int sequence, SubqueryAccumulator subqueries)
+        {
+            CollectImmediateSubqueries(setClause, "SET句", subqueries);
+
+            return setClause switch
+            {
+                AssignmentSetClause assignmentSetClause => new UpdateSetClauseAnalysis(
+                    sequence,
+                    _textExtractor.Normalize(setClause),
+                    assignmentSetClause.Column is not null
+                        ? _textExtractor.Normalize(assignmentSetClause.Column)
+                        : NormalizeOrNull(assignmentSetClause.Variable) ?? "(変数)",
+                    NormalizeOrNull(assignmentSetClause.NewValue) ?? "NULL"),
+                FunctionCallSetClause functionCallSetClause => new UpdateSetClauseAnalysis(
+                    sequence,
+                    _textExtractor.Normalize(setClause),
+                    "関数呼び出し",
+                    NormalizeOrNull(functionCallSetClause.MutatorFunction) ?? _textExtractor.Normalize(setClause)),
+                _ => new UpdateSetClauseAnalysis(
+                    sequence,
+                    _textExtractor.Normalize(setClause),
+                    "(未分類)",
+                    _textExtractor.Normalize(setClause))
+            };
+        }
+
+        /// <summary>
+        /// INSERT 入力元を解析する。
+        /// SELECT 入力元では内部クエリも保持し、TreeView から深掘りできるようにする。
+        /// </summary>
+        private InsertSourceAnalysis? AnalyzeInsertSource(InsertSource? insertSource, SubqueryAccumulator subqueries)
+        {
+            if (insertSource is null)
+            {
+                return null;
+            }
+
+            switch (insertSource)
+            {
+                case ValuesInsertSource valuesInsertSource:
+                {
+                    var items = valuesInsertSource.IsDefaultValues
+                        ? ["DEFAULT VALUES"]
+                        : valuesInsertSource.RowValues
+                            .Select(rowValue => _textExtractor.Normalize(rowValue))
+                            .ToArray();
+
+                    foreach (var rowValue in valuesInsertSource.RowValues)
+                    {
+                        CollectImmediateSubqueries(rowValue, "INSERT入力元", subqueries);
+                    }
+
+                    return new InsertSourceAnalysis(
+                        InsertSourceKind.Values,
+                        _textExtractor.Normalize(insertSource),
+                        items,
+                        null,
+                        null);
+                }
+
+                case SelectInsertSource selectInsertSource:
+                {
+                    var query = AnalyzeSelectInsertSourceQuery(selectInsertSource);
+                    if (query is not null)
+                    {
+                        subqueries.Add("INSERT入力元", selectInsertSource.Select, query);
+                    }
+
+                    return new InsertSourceAnalysis(
+                        InsertSourceKind.Query,
+                        _textExtractor.Normalize(insertSource),
+                        [],
+                        query,
+                        null);
+                }
+
+                case ExecuteInsertSource executeInsertSource:
+                    CollectImmediateSubqueries(executeInsertSource.Execute, "INSERT入力元", subqueries);
+
+                    return new InsertSourceAnalysis(
+                        InsertSourceKind.Execute,
+                        _textExtractor.Normalize(insertSource),
+                        [],
+                        null,
+                        NormalizeOrNull(executeInsertSource.Execute));
+
+                default:
+                    CollectImmediateSubqueries(insertSource, "INSERT入力元", subqueries);
+
+                    return new InsertSourceAnalysis(
+                        InsertSourceKind.Unknown,
+                        _textExtractor.Normalize(insertSource),
+                        [],
+                        null,
+                        null);
+            }
         }
 
         /// <summary>
@@ -485,6 +707,30 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         }
 
         /// <summary>
+        /// FROM 句を解析し、先頭ソースと JOIN 一覧へ分解する。
+        /// UPDATE / DELETE でも同じ見せ方を使えるように共通化する。
+        /// </summary>
+        private TableReferenceAnalysisResult AnalyzeFromClause(FromClause? fromClause, SubqueryAccumulator subqueries)
+        {
+            if (fromClause?.TableReferences is not { Count: > 0 })
+            {
+                return new TableReferenceAnalysisResult(null, [], []);
+            }
+
+            var fromResult = AnalyzeTableReference(fromClause.TableReferences[0], "FROM句");
+            subqueries.AddRange(fromResult.Subqueries);
+
+            if (fromClause.TableReferences.Count > 1)
+            {
+                _notices.Add(new AnalysisNotice(
+                    AnalysisNoticeLevel.Information,
+                    "FROM句に複数のソースが含まれています。初期版では先頭ソースを基準に解析し、残りは今後の拡張対象です。"));
+            }
+
+            return fromResult;
+        }
+
+        /// <summary>
         /// SchemaObjectName をユーザー向けの 1 行表記へ整える。
         /// </summary>
         private static string NormalizeSchemaObjectName(SchemaObjectName schemaObjectName)
@@ -524,8 +770,13 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         /// SELECT 項目などに含まれる一般的なサブクエリを拾う。
         /// 即時の子サブクエリだけを集め、孫以下はそのサブクエリ自身に任せる。
         /// </summary>
-        private void CollectImmediateSubqueries(TSqlFragment fragment, string locationLabel, SubqueryAccumulator accumulator)
+        private void CollectImmediateSubqueries(TSqlFragment? fragment, string locationLabel, SubqueryAccumulator accumulator)
         {
+            if (fragment is null)
+            {
+                return;
+            }
+
             var collector = new ImmediateSubqueryCollector(this, _textExtractor, locationLabel, accumulator);
             fragment.Accept(collector);
         }
@@ -560,6 +811,29 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             }
 
             return topText;
+        }
+
+        /// <summary>
+        /// INSERT オプションを表示向け文字列へ整える。
+        /// 既定値相当は null とし、明示された INTO / OVER だけを出す。
+        /// </summary>
+        private static string? BuildInsertOptionText(InsertSpecification insertSpecification)
+        {
+            var text = insertSpecification.InsertOption.ToString();
+            return string.Equals(text, "None", StringComparison.OrdinalIgnoreCase) ? null : text.ToUpperInvariant();
+        }
+
+        /// <summary>
+        /// INSERT ... SELECT の入力元から内部クエリを取り出す。
+        /// ScriptDom の型差を吸収して、SELECT 本体だけを再帰解析へ渡す。
+        /// </summary>
+        private QueryExpressionAnalysis? AnalyzeSelectInsertSourceQuery(SelectInsertSource selectInsertSource)
+        {
+            return selectInsertSource.Select switch
+            {
+                QueryExpression queryExpression => AnalyzeQueryExpression(queryExpression),
+                _ => null
+            };
         }
 
         /// <summary>

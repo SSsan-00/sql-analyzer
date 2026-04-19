@@ -512,6 +512,89 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("集合演算種別: INTERSECT", flattenedTexts);
     }
 
+    /// <summary>
+    /// UPDATE 文でも TreeView から対象・更新内容・JOIN・WHERE を追えることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForUpdateStatement_ContainsUpdateNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           UPDATE u
+                           SET
+                               u.Status = o.Status,
+                               u.UpdatedAt = GETDATE()
+                           FROM dbo.Users u
+                           INNER JOIN dbo.Orders o
+                               ON u.Id = o.UserId
+                           WHERE o.Status = 'Active';
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("文種別: UPDATE", flattenedTexts);
+        Assert.Contains("更新対象", flattenedTexts);
+        Assert.Contains("更新内容", flattenedTexts);
+        Assert.Contains("SET #1", flattenedTexts);
+        Assert.Contains("列: u.Status", flattenedTexts);
+        Assert.Contains("値: o.Status", flattenedTexts);
+        Assert.Contains("結合", flattenedTexts);
+        Assert.Contains("種別: INNER JOIN", flattenedTexts);
+        Assert.Contains("抽出条件", flattenedTexts);
+    }
+
+    /// <summary>
+    /// INSERT 文と DELETE 文でも TreeView から主要構造を追えることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForInsertAndDeleteStatements_ContainsDmlNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+
+        const string insertSql = """
+                                 INSERT INTO dbo.UserSummary (UserId, OrderCount)
+                                 SELECT
+                                     u.Id,
+                                     COUNT(*) AS OrderCount
+                                 FROM dbo.Users u
+                                 GROUP BY u.Id;
+                                 """;
+
+        var insertAnalysis = service.Analyze(insertSql);
+        var insertTree = builder.Build(insertAnalysis);
+        var insertTexts = Flatten(insertTree).ToArray();
+
+        Assert.Contains("文種別: INSERT", insertTexts);
+        Assert.Contains("挿入対象", insertTexts);
+        Assert.Contains("挿入列", insertTexts);
+        Assert.Contains("入力元", insertTexts);
+        Assert.Contains("種別: SELECTクエリ", insertTexts);
+        Assert.Contains("内部クエリ", insertTexts);
+
+        const string deleteSql = """
+                                 DELETE u
+                                 FROM dbo.Users u
+                                 LEFT JOIN dbo.Orders o
+                                     ON u.Id = o.UserId
+                                 WHERE o.UserId IS NULL;
+                                 """;
+
+        var deleteAnalysis = service.Analyze(deleteSql);
+        var deleteTree = builder.Build(deleteAnalysis);
+        var deleteTexts = Flatten(deleteTree).ToArray();
+
+        Assert.Contains("文種別: DELETE", deleteTexts);
+        Assert.Contains("削除対象", deleteTexts);
+        Assert.Contains("結合", deleteTexts);
+        Assert.Contains("種別: LEFT JOIN", deleteTexts);
+        Assert.Contains("抽出条件", deleteTexts);
+    }
+
     private static IEnumerable<string> Flatten(DisplayTreeNode node)
     {
         yield return node.Text;

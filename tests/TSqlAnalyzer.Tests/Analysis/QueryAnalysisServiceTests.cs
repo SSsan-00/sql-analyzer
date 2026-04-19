@@ -613,6 +613,99 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// UPDATE 文の対象・SET・JOIN・WHERE を分解できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_UpdateStatement_ReturnsUpdateStructure()
+    {
+        var service = CreateService();
+        const string sql = """
+                           UPDATE u
+                           SET
+                               u.Status = o.Status,
+                               u.UpdatedAt = GETDATE()
+                           FROM dbo.Users u
+                           INNER JOIN dbo.Orders o
+                               ON u.Id = o.UserId
+                           WHERE o.Status = 'Active';
+                           """;
+
+        var result = service.Analyze(sql);
+
+        Assert.Equal(QueryStatementCategory.Update, result.StatementCategory);
+        Assert.Null(result.Query);
+
+        var update = Assert.IsType<UpdateStatementAnalysis>(result.DataModification);
+        Assert.NotNull(update.Target);
+        Assert.Equal(2, update.SetClauses.Count);
+        Assert.Equal("u.Status", update.SetClauses[0].TargetText);
+        Assert.Equal("o.Status", update.SetClauses[0].ValueText);
+        var updateJoin = Assert.Single(update.Joins);
+        Assert.Equal("INNER JOIN", updateJoin.JoinTypeText);
+        Assert.NotNull(update.WhereCondition);
+        Assert.Contains("o.Status", update.WhereCondition!.DisplayText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// INSERT ... SELECT 文で対象列と入力元クエリを保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_InsertSelectStatement_ReturnsInsertStructure()
+    {
+        var service = CreateService();
+        const string sql = """
+                           INSERT INTO dbo.UserSummary (UserId, OrderCount)
+                           SELECT
+                               u.Id,
+                               COUNT(*) AS OrderCount
+                           FROM dbo.Users u
+                           GROUP BY u.Id;
+                           """;
+
+        var result = service.Analyze(sql);
+
+        Assert.Equal(QueryStatementCategory.Insert, result.StatementCategory);
+        Assert.Null(result.Query);
+
+        var insert = Assert.IsType<InsertStatementAnalysis>(result.DataModification);
+        Assert.Equal(2, insert.TargetColumns.Count);
+        Assert.Equal("UserId", insert.TargetColumns[0]);
+        Assert.Equal("OrderCount", insert.TargetColumns[1]);
+        Assert.NotNull(insert.InsertSource);
+        Assert.Equal(InsertSourceKind.Query, insert.InsertSource!.SourceKind);
+        Assert.NotNull(insert.InsertSource.Query);
+        Assert.IsType<SelectQueryAnalysis>(insert.InsertSource.Query);
+    }
+
+    /// <summary>
+    /// DELETE 文の対象・JOIN・WHERE を分解できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_DeleteStatement_ReturnsDeleteStructure()
+    {
+        var service = CreateService();
+        const string sql = """
+                           DELETE u
+                           FROM dbo.Users u
+                           LEFT JOIN dbo.Orders o
+                               ON u.Id = o.UserId
+                           WHERE o.UserId IS NULL;
+                           """;
+
+        var result = service.Analyze(sql);
+
+        Assert.Equal(QueryStatementCategory.Delete, result.StatementCategory);
+        Assert.Null(result.Query);
+
+        var delete = Assert.IsType<DeleteStatementAnalysis>(result.DataModification);
+        Assert.NotNull(delete.Target);
+        var deleteJoin = Assert.Single(delete.Joins);
+        Assert.Equal("LEFT JOIN", deleteJoin.JoinTypeText);
+        Assert.NotNull(delete.WhereCondition);
+        Assert.Contains("IS NULL", delete.WhereCondition!.DisplayText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// 空入力時に例外ではなく、利用者に返せる結果になることを確認する。
     /// </summary>
     [Fact]
