@@ -391,6 +391,44 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains(flattenedTexts, text => text.Contains("dbo.PremiumUsers", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// 集合演算ノードに左右クエリの概要が表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForNestedSetOperation_ContainsSetOperationSummaryNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           UNION ALL
+                           (
+                               SELECT
+                                   a.UserId
+                               FROM dbo.ArchiveUsers a
+                               INTERSECT
+                               SELECT
+                                   p.UserId
+                               FROM dbo.PremiumUsers p
+                           );
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("左概要", flattenedTexts);
+        Assert.Contains("右概要", flattenedTexts);
+        Assert.Contains("クエリ種別: SELECT", flattenedTexts);
+        Assert.Contains("クエリ種別: 集合演算", flattenedTexts);
+        Assert.Contains("主ソース: dbo.Users u", flattenedTexts);
+        Assert.Contains("子集合演算数: 1", flattenedTexts);
+        Assert.Contains("集合演算種別: INTERSECT", flattenedTexts);
+    }
+
     private static IEnumerable<string> Flatten(DisplayTreeNode node)
     {
         yield return node.Text;

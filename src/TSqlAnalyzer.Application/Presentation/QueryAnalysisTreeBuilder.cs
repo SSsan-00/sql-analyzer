@@ -77,6 +77,7 @@ public sealed class QueryAnalysisTreeBuilder
         else if (result.Query is SetOperationQueryAnalysis setOperationQuery)
         {
             children.Add(Node($"集合演算種別: {BuildSetOperationText(setOperationQuery.OperationType)}"));
+            children.Add(Node($"子集合演算数: {CountNestedSetOperations(setOperationQuery)}"));
             children.Add(Node("左右のクエリ構造を個別に確認できます。"));
         }
         else
@@ -613,8 +614,60 @@ public sealed class QueryAnalysisTreeBuilder
         return Node(
             title,
             Node($"種別: {BuildSetOperationText(setOperationQuery.OperationType)}"),
+            Node(
+                "概要",
+                Node($"子集合演算数: {CountNestedSetOperations(setOperationQuery)}"),
+                BuildQuerySummaryNode("左概要", setOperationQuery.LeftQuery),
+                BuildQuerySummaryNode("右概要", setOperationQuery.RightQuery)),
             BuildQueryNode("左クエリ", setOperationQuery.LeftQuery),
             BuildQueryNode("右クエリ", setOperationQuery.RightQuery));
+    }
+
+    /// <summary>
+    /// 任意のクエリ式の概要ノードを作る。
+    /// 集合演算の左右差を先に掴めるよう、要点だけを短く並べる。
+    /// </summary>
+    private static DisplayTreeNode BuildQuerySummaryNode(string title, QueryExpressionAnalysis query)
+    {
+        return query switch
+        {
+            SelectQueryAnalysis selectQuery => Node(
+                title,
+                Node("クエリ種別: SELECT"),
+                Node(selectQuery.IsDistinct ? "DISTINCT: あり" : "DISTINCT: なし"),
+                Node($"取得項目数: {selectQuery.SelectItems.Count}"),
+                Node($"JOIN数: {selectQuery.Joins.Count}"),
+                Node($"サブクエリ数: {selectQuery.Subqueries.Count}"),
+                Node($"主ソース: {selectQuery.MainSource?.DisplayText ?? "なし"}")),
+            SetOperationQueryAnalysis setOperationQuery => Node(
+                title,
+                Node("クエリ種別: 集合演算"),
+                Node($"集合演算種別: {BuildSetOperationText(setOperationQuery.OperationType)}"),
+                Node($"子集合演算数: {CountNestedSetOperations(setOperationQuery)}")),
+            _ => Node(title, Node("クエリ種別: 不明"))
+        };
+    }
+
+    /// <summary>
+    /// 子孫にある集合演算ノード数を返す。
+    /// 現在ノード自身は含めず、左右にどれだけ集合演算がぶら下がっているかだけを数える。
+    /// </summary>
+    private static int CountNestedSetOperations(SetOperationQueryAnalysis query)
+    {
+        return CountNestedSetOperations(query.LeftQuery) + CountNestedSetOperations(query.RightQuery);
+    }
+
+    /// <summary>
+    /// 任意のクエリ式配下にある集合演算ノード数を返す。
+    /// </summary>
+    private static int CountNestedSetOperations(QueryExpressionAnalysis query)
+    {
+        if (query is not SetOperationQueryAnalysis setOperationQuery)
+        {
+            return 0;
+        }
+
+        return 1 + CountNestedSetOperations(setOperationQuery.LeftQuery) + CountNestedSetOperations(setOperationQuery.RightQuery);
     }
 
     /// <summary>
