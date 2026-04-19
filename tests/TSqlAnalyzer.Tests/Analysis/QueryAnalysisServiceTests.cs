@@ -358,6 +358,38 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// 再帰 CTE を含む場合、自己参照を検出して補足を返すことを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_RecursiveCte_ReturnsSelfReferenceNotice()
+    {
+        var service = CreateService();
+        const string sql = """
+                           WITH recursive_users AS (
+                               SELECT
+                                   u.Id
+                               FROM dbo.Users u
+                               UNION ALL
+                               SELECT
+                                   ru.Id
+                               FROM recursive_users ru
+                           )
+                           SELECT
+                               ru.Id
+                           FROM recursive_users ru;
+                           """;
+
+        var result = service.Analyze(sql);
+
+        var cte = Assert.Single(result.CommonTableExpressions);
+        var cteQuery = Assert.IsType<SetOperationQueryAnalysis>(cte.Query);
+        var recursiveBranch = Assert.IsType<SelectQueryAnalysis>(cteQuery.RightQuery);
+        Assert.Equal(SourceKind.CommonTableExpressionReference, recursiveBranch.MainSource!.SourceKind);
+        Assert.Equal("recursive_users", recursiveBranch.MainSource.SourceName);
+        Assert.Contains(result.Notices, notice => notice.Message.Contains("再帰", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// 空入力時に例外ではなく、利用者に返せる結果になることを確認する。
     /// </summary>
     [Fact]

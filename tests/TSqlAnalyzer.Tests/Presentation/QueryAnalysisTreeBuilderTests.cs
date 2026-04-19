@@ -136,7 +136,42 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("参照関係", flattenedTexts);
         Assert.Contains("メインクエリ: active_users", flattenedTexts);
         Assert.Contains("CTE active_users: base_users", flattenedTexts);
+        Assert.Contains("依存順", flattenedTexts);
+        Assert.Contains("手順 1: base_users", flattenedTexts);
+        Assert.Contains("手順 2: active_users", flattenedTexts);
         Assert.Contains("種別: CTE参照", flattenedTexts);
+    }
+
+    /// <summary>
+    /// 再帰 CTE がある場合、依存順ノードで循環が見えることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForRecursiveCte_ContainsCycleNode()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           WITH recursive_users AS (
+                               SELECT
+                                   u.Id
+                               FROM dbo.Users u
+                               UNION ALL
+                               SELECT
+                                   ru.Id
+                               FROM recursive_users ru
+                           )
+                           SELECT
+                               ru.Id
+                           FROM recursive_users ru;
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("依存順", flattenedTexts);
+        Assert.Contains("循環あり: recursive_users", flattenedTexts);
     }
 
     /// <summary>

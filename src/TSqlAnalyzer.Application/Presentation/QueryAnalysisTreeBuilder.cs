@@ -1,3 +1,4 @@
+using TSqlAnalyzer.Application.Analysis;
 using TSqlAnalyzer.Domain.Analysis;
 
 namespace TSqlAnalyzer.Application.Presentation;
@@ -103,7 +104,7 @@ public sealed class QueryAnalysisTreeBuilder
                     $"CTE #{index + 1}: {cte.Name}",
                     BuildCteColumnsNode(cte),
                     BuildQueryNode("内部構造", cte.Query)))
-                .Concat([BuildCteReferenceSummaryNode(result)])
+                .Concat([BuildCteReferenceSummaryNode(result), BuildCteDependencyOrderNode(result)])
                 .ToArray());
     }
 
@@ -326,6 +327,30 @@ public sealed class QueryAnalysisTreeBuilder
     }
 
     /// <summary>
+    /// CTE の依存順ノードを作る。
+    /// 非循環な CTE は読み始める順に並べ、循環がある場合は別ノードで明示する。
+    /// </summary>
+    private static DisplayTreeNode BuildCteDependencyOrderNode(QueryAnalysisResult result)
+    {
+        var dependencyReport = CommonTableExpressionDependencyAnalyzer.Analyze(result.CommonTableExpressions);
+        var children = dependencyReport.DependencyOrder
+            .Select((name, index) => Node($"手順 {index + 1}: {name}"))
+            .ToList();
+
+        if (dependencyReport.CyclicNames.Count > 0)
+        {
+            children.Add(Node($"循環あり: {string.Join(", ", dependencyReport.CyclicNames)}"));
+        }
+
+        if (children.Count == 0)
+        {
+            children.Add(Node("依存なし"));
+        }
+
+        return Node("依存順", children.ToArray());
+    }
+
+    /// <summary>
     /// ソースが内部クエリを持つ場合だけ補助ノードを作る。
     /// </summary>
     private static DisplayTreeNode BuildNestedSourceNode(string title, SourceAnalysis source)
@@ -477,76 +502,8 @@ public sealed class QueryAnalysisTreeBuilder
     /// </summary>
     private static string BuildReferencedCteNamesText(QueryExpressionAnalysis? query)
     {
-        if (query is null)
-        {
-            return "なし";
-        }
-
-        var names = CollectReferencedCteNames(query)
-            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        return names.Length == 0 ? "なし" : string.Join(", ", names);
-    }
-
-    /// <summary>
-    /// クエリ以下から参照されている CTE 名を再帰的に集める。
-    /// </summary>
-    private static HashSet<string> CollectReferencedCteNames(QueryExpressionAnalysis query)
-    {
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        CollectReferencedCteNames(query, names);
-        return names;
-    }
-
-    /// <summary>
-    /// クエリ以下から参照されている CTE 名を蓄積する。
-    /// </summary>
-    private static void CollectReferencedCteNames(QueryExpressionAnalysis query, ISet<string> names)
-    {
-        switch (query)
-        {
-            case SelectQueryAnalysis selectQuery:
-                AddSourceReference(selectQuery.MainSource, names);
-
-                foreach (var join in selectQuery.Joins)
-                {
-                    AddSourceReference(join.TargetSource, names);
-                }
-
-                foreach (var subquery in selectQuery.Subqueries)
-                {
-                    CollectReferencedCteNames(subquery.Query, names);
-                }
-
-                break;
-
-            case SetOperationQueryAnalysis setOperationQuery:
-                CollectReferencedCteNames(setOperationQuery.LeftQuery, names);
-                CollectReferencedCteNames(setOperationQuery.RightQuery, names);
-                break;
-        }
-    }
-
-    /// <summary>
-    /// ソースから CTE 参照名を拾う。
-    /// </summary>
-    private static void AddSourceReference(SourceAnalysis? source, ISet<string> names)
-    {
-        if (source is null)
-        {
-            return;
-        }
-
-        if (source.SourceKind == SourceKind.CommonTableExpressionReference && !string.IsNullOrWhiteSpace(source.SourceName))
-        {
-            names.Add(source.SourceName);
-        }
-
-        if (source.NestedQuery is not null)
-        {
-            CollectReferencedCteNames(source.NestedQuery, names);
-        }
+        var names = CommonTableExpressionDependencyAnalyzer.GetReferencedNames(query);
+        return names.Count == 0 ? "なし" : string.Join(", ", names);
     }
 
     /// <summary>

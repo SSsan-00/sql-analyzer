@@ -6,6 +6,7 @@ docs/WindowsBootstrapToExe.md
 src/TSqlAnalyzer.Domain/TSqlAnalyzer.Domain.csproj
 src/TSqlAnalyzer.Domain/Analysis/QueryAnalysisModels.cs
 src/TSqlAnalyzer.Application/TSqlAnalyzer.Application.csproj
+src/TSqlAnalyzer.Application/Analysis/CommonTableExpressionDependencyAnalyzer.cs
 src/TSqlAnalyzer.Application/Analysis/ISqlQueryAnalyzer.cs
 src/TSqlAnalyzer.Application/Analysis/ScriptDomQueryAnalyzer.cs
 src/TSqlAnalyzer.Application/Presentation/DisplayTreeNode.cs

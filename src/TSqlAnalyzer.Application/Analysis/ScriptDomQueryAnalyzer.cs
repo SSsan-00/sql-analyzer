@@ -82,6 +82,14 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         var core = new AnalyzerCore(sql, notices, commonTableExpressionNames);
         var commonTableExpressions = core.AnalyzeCommonTableExpressions(selectStatement.WithCtesAndXmlNamespaces);
         var query = core.AnalyzeQueryExpression(selectStatement.QueryExpression);
+        var dependencyReport = CommonTableExpressionDependencyAnalyzer.Analyze(commonTableExpressions);
+        if (dependencyReport.CyclicNames.Count > 0)
+        {
+            notices.Add(new AnalysisNotice(
+                AnalysisNoticeLevel.Information,
+                $"再帰または循環する CTE 参照が含まれています: {string.Join(", ", dependencyReport.CyclicNames)}"));
+        }
+
         var category = query.Kind == QueryExpressionKind.SetOperation
             ? QueryStatementCategory.SetOperation
             : QueryStatementCategory.Select;
