@@ -103,6 +103,7 @@ public sealed class QueryAnalysisTreeBuilder
                     $"CTE #{index + 1}: {cte.Name}",
                     BuildCteColumnsNode(cte),
                     BuildQueryNode("内部構造", cte.Query)))
+                .Concat([BuildCteReferenceSummaryNode(result)])
                 .ToArray());
     }
 
@@ -166,12 +167,16 @@ public sealed class QueryAnalysisTreeBuilder
 
         if (query.MainSource.NestedQuery is null)
         {
-            return Node("主テーブル", Node(query.MainSource.DisplayText));
+            return Node(
+                "主テーブル",
+                Node(query.MainSource.DisplayText),
+                BuildSourceKindNode(query.MainSource));
         }
 
         return Node(
             "主テーブル",
             Node(query.MainSource.DisplayText),
+            BuildSourceKindNode(query.MainSource),
             BuildQueryNode("主テーブルの内部構造", query.MainSource.NestedQuery));
     }
 
@@ -304,6 +309,23 @@ public sealed class QueryAnalysisTreeBuilder
     }
 
     /// <summary>
+    /// CTE 参照関係の要約ノードを作る。
+    /// メインクエリと各 CTE が、どの CTE 名を参照しているかを一覧化する。
+    /// </summary>
+    private static DisplayTreeNode BuildCteReferenceSummaryNode(QueryAnalysisResult result)
+    {
+        var children = new List<DisplayTreeNode>
+        {
+            Node($"メインクエリ: {BuildReferencedCteNamesText(result.Query)}")
+        };
+
+        children.AddRange(result.CommonTableExpressions.Select(cte =>
+            Node($"CTE {cte.Name}: {BuildReferencedCteNamesText(cte.Query)}")));
+
+        return Node("参照関係", children.ToArray());
+    }
+
+    /// <summary>
     /// ソースが内部クエリを持つ場合だけ補助ノードを作る。
     /// </summary>
     private static DisplayTreeNode BuildNestedSourceNode(string title, SourceAnalysis source)
@@ -317,6 +339,28 @@ public sealed class QueryAnalysisTreeBuilder
     }
 
     /// <summary>
+    /// ソース種別ノードを作る。
+    /// CTE 参照や派生テーブルを明示して、主テーブルや JOIN 先の意味を追いやすくする。
+    /// </summary>
+    private static DisplayTreeNode BuildSourceKindNode(SourceAnalysis source)
+    {
+        var text = source.SourceKind switch
+        {
+            SourceKind.CommonTableExpressionReference => "CTE参照",
+            SourceKind.DerivedTable => "派生テーブル",
+            SourceKind.Object => "通常ソース",
+            _ => "不明"
+        };
+
+        if (source.SourceKind == SourceKind.CommonTableExpressionReference && !string.IsNullOrWhiteSpace(source.SourceName))
+        {
+            return Node($"種別: {text}", Node($"名前: {source.SourceName}"));
+        }
+
+        return Node($"種別: {text}");
+    }
+
+    /// <summary>
     /// JOIN 詳細ノードを作る。
     /// </summary>
     private static DisplayTreeNode BuildJoinDetailNode(JoinAnalysis join)
@@ -325,6 +369,7 @@ public sealed class QueryAnalysisTreeBuilder
         {
             Node($"種別: {join.JoinTypeText}"),
             Node($"結合先: {join.TargetSource.DisplayText}"),
+            BuildSourceKindNode(join.TargetSource),
             Node($"ON条件: {join.OnConditionText ?? "なし"}")
         };
 
@@ -425,6 +470,83 @@ public sealed class QueryAnalysisTreeBuilder
             ConditionNodeKind.Predicate when node.Marker is not null => BuildMarkerText(node.Marker.MarkerType),
             _ => "条件"
         };
+    }
+
+    /// <summary>
+    /// クエリが参照している CTE 名の一覧を文字列化する。
+    /// </summary>
+    private static string BuildReferencedCteNamesText(QueryExpressionAnalysis? query)
+    {
+        if (query is null)
+        {
+            return "なし";
+        }
+
+        var names = CollectReferencedCteNames(query)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return names.Length == 0 ? "なし" : string.Join(", ", names);
+    }
+
+    /// <summary>
+    /// クエリ以下から参照されている CTE 名を再帰的に集める。
+    /// </summary>
+    private static HashSet<string> CollectReferencedCteNames(QueryExpressionAnalysis query)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectReferencedCteNames(query, names);
+        return names;
+    }
+
+    /// <summary>
+    /// クエリ以下から参照されている CTE 名を蓄積する。
+    /// </summary>
+    private static void CollectReferencedCteNames(QueryExpressionAnalysis query, ISet<string> names)
+    {
+        switch (query)
+        {
+            case SelectQueryAnalysis selectQuery:
+                AddSourceReference(selectQuery.MainSource, names);
+
+                foreach (var join in selectQuery.Joins)
+                {
+                    AddSourceReference(join.TargetSource, names);
+                }
+
+                foreach (var subquery in selectQuery.Subqueries)
+                {
+                    CollectReferencedCteNames(subquery.Query, names);
+                }
+
+                break;
+
+            case SetOperationQueryAnalysis setOperationQuery:
+                CollectReferencedCteNames(setOperationQuery.LeftQuery, names);
+                CollectReferencedCteNames(setOperationQuery.RightQuery, names);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// ソースから CTE 参照名を拾う。
+    /// </summary>
+    private static void AddSourceReference(SourceAnalysis? source, ISet<string> names)
+    {
+        if (source is null)
+        {
+            return;
+        }
+
+        if (source.SourceKind == SourceKind.CommonTableExpressionReference && !string.IsNullOrWhiteSpace(source.SourceName))
+        {
+            names.Add(source.SourceName);
+        }
+
+        if (source.NestedQuery is not null)
+        {
+            CollectReferencedCteNames(source.NestedQuery, names);
+        }
     }
 
     /// <summary>

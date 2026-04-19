@@ -321,6 +321,43 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// CTE 参照が主クエリと別 CTE の両方で判別できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_CteReferenceSource_DetectsReferenceKind()
+    {
+        var service = CreateService();
+        const string sql = """
+                           WITH base_users AS (
+                               SELECT
+                                   u.Id
+                               FROM dbo.Users u
+                           ),
+                           active_users AS (
+                               SELECT
+                                   bu.Id
+                               FROM base_users bu
+                           )
+                           SELECT
+                               au.Id
+                           FROM active_users au;
+                           """;
+
+        var result = service.Analyze(sql);
+
+        Assert.Equal(2, result.CommonTableExpressions.Count);
+
+        var secondCte = result.CommonTableExpressions[1];
+        var secondCteQuery = Assert.IsType<SelectQueryAnalysis>(secondCte.Query);
+        Assert.Equal(SourceKind.CommonTableExpressionReference, secondCteQuery.MainSource!.SourceKind);
+        Assert.Equal("base_users", secondCteQuery.MainSource.SourceName);
+
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        Assert.Equal(SourceKind.CommonTableExpressionReference, query.MainSource!.SourceKind);
+        Assert.Equal("active_users", query.MainSource.SourceName);
+    }
+
+    /// <summary>
     /// 空入力時に例外ではなく、利用者に返せる結果になることを確認する。
     /// </summary>
     [Fact]

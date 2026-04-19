@@ -76,7 +76,10 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 "XML 名前空間定義が含まれています。初期版ではクエリ本体と CTE を優先して表示します。"));
         }
 
-        var core = new AnalyzerCore(sql, notices);
+        var commonTableExpressionNames = selectStatement.WithCtesAndXmlNamespaces?.CommonTableExpressions?
+            .Select(commonTableExpression => commonTableExpression.ExpressionName.Value)
+            .ToArray() ?? [];
+        var core = new AnalyzerCore(sql, notices, commonTableExpressionNames);
         var commonTableExpressions = core.AnalyzeCommonTableExpressions(selectStatement.WithCtesAndXmlNamespaces);
         var query = core.AnalyzeQueryExpression(selectStatement.QueryExpression);
         var category = query.Kind == QueryExpressionKind.SetOperation
@@ -124,11 +127,13 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
     {
         private readonly SqlTextExtractor _textExtractor;
         private readonly ICollection<AnalysisNotice> _notices;
+        private readonly HashSet<string> _commonTableExpressionNames;
 
-        public AnalyzerCore(string sql, ICollection<AnalysisNotice> notices)
+        public AnalyzerCore(string sql, ICollection<AnalysisNotice> notices, IEnumerable<string> commonTableExpressionNames)
         {
             _textExtractor = new SqlTextExtractor(sql);
             _notices = notices;
+            _commonTableExpressionNames = new HashSet<string>(commonTableExpressionNames, StringComparer.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -339,7 +344,11 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             if (tableReference is QueryDerivedTable derivedTable)
             {
                 var nestedQuery = AnalyzeQueryExpression(derivedTable.QueryExpression);
-                var source = new SourceAnalysis(_textExtractor.Normalize(tableReference), nestedQuery);
+                var source = new SourceAnalysis(
+                    _textExtractor.Normalize(tableReference),
+                    nestedQuery,
+                    SourceKind.DerivedTable,
+                    null);
                 var subquery = new SubqueryAnalysis(
                     locationLabel,
                     _textExtractor.CreatePreview(derivedTable.QueryExpression),
@@ -348,9 +357,51 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 return new SourceAnalysisResult(source, [subquery]);
             }
 
+            if (tableReference is NamedTableReference namedTableReference)
+            {
+                var sourceName = NormalizeSchemaObjectName(namedTableReference.SchemaObject);
+                var sourceKind = IsCommonTableExpressionReference(namedTableReference.SchemaObject)
+                    ? SourceKind.CommonTableExpressionReference
+                    : SourceKind.Object;
+
+                return new SourceAnalysisResult(
+                    new SourceAnalysis(
+                        _textExtractor.Normalize(tableReference),
+                        null,
+                        sourceKind,
+                        sourceName),
+                    []);
+            }
+
             return new SourceAnalysisResult(
-                new SourceAnalysis(_textExtractor.Normalize(tableReference), null),
+                new SourceAnalysis(
+                    _textExtractor.Normalize(tableReference),
+                    null,
+                    SourceKind.Unknown,
+                    null),
                 []);
+        }
+
+        /// <summary>
+        /// SchemaObjectName をユーザー向けの 1 行表記へ整える。
+        /// </summary>
+        private static string NormalizeSchemaObjectName(SchemaObjectName schemaObjectName)
+        {
+            return string.Join(".", schemaObjectName.Identifiers.Select(identifier => identifier.Value));
+        }
+
+        /// <summary>
+        /// NamedTableReference が CTE 参照かどうかを判定する。
+        /// CTE 名は通常 1 パート名なので、その場合だけ CTE とみなす。
+        /// </summary>
+        private bool IsCommonTableExpressionReference(SchemaObjectName schemaObjectName)
+        {
+            if (schemaObjectName.Identifiers.Count != 1)
+            {
+                return false;
+            }
+
+            return _commonTableExpressionNames.Contains(schemaObjectName.BaseIdentifier.Value);
         }
 
         /// <summary>

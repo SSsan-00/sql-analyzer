@@ -105,6 +105,41 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// CTE 参照関係が TreeView から読み取れることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForCteReferenceQuery_ContainsReferenceSummary()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           WITH base_users AS (
+                               SELECT
+                                   u.Id
+                               FROM dbo.Users u
+                           ),
+                           active_users AS (
+                               SELECT
+                                   bu.Id
+                               FROM base_users bu
+                           )
+                           SELECT
+                               au.Id
+                           FROM active_users au;
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("参照関係", flattenedTexts);
+        Assert.Contains("メインクエリ: active_users", flattenedTexts);
+        Assert.Contains("CTE active_users: base_users", flattenedTexts);
+        Assert.Contains("種別: CTE参照", flattenedTexts);
+    }
+
+    /// <summary>
     /// 条件マーカー配下から EXISTS の内部クエリを辿れることを確認する。
     /// </summary>
     [Fact]

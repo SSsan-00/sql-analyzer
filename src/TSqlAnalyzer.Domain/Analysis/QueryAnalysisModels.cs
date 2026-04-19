@@ -39,6 +39,18 @@ public enum JoinType
 }
 
 /// <summary>
+/// FROM / JOIN ソースの分類。
+/// CTE 参照や派生テーブルを区別しておくと、参照関係や表示補足を付けやすい。
+/// </summary>
+public enum SourceKind
+{
+    Object,
+    CommonTableExpressionReference,
+    DerivedTable,
+    Unknown
+}
+
+/// <summary>
 /// 集合演算の種別。
 /// UNION と UNION ALL を分けて保持し、将来の差異表示に備える。
 /// </summary>
@@ -148,7 +160,11 @@ public sealed record SelectItemAnalysis(int Sequence, string DisplayText);
 /// FROM 句や JOIN 先として使われるソースを表す。
 /// 通常テーブルだけでなく、派生テーブルやサブクエリ結果も保持できるようにしている。
 /// </summary>
-public sealed record SourceAnalysis(string DisplayText, QueryExpressionAnalysis? NestedQuery);
+public sealed record SourceAnalysis(
+    string DisplayText,
+    QueryExpressionAnalysis? NestedQuery,
+    SourceKind SourceKind,
+    string? SourceName);
 
 /// <summary>
 /// JOIN 表示に必要な最小情報。
