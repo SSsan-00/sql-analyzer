@@ -46,6 +46,38 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// SELECT 項目で別名と集計関数の詳細が表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForSelectItems_ContainsAliasAndAggregateTexts()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id AS UserId,
+                               SUM(o.Amount) AS TotalAmount,
+                               COUNT(*) OrderCount
+                           FROM dbo.Users u
+                           LEFT JOIN dbo.Orders o
+                               ON u.Id = o.UserId
+                           GROUP BY u.Id;
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("取得項目", flattenedTexts);
+        Assert.Contains("別名: UserId", flattenedTexts);
+        Assert.Contains("別名: TotalAmount", flattenedTexts);
+        Assert.Contains("集計関数: SUM", flattenedTexts);
+        Assert.Contains("集計関数: COUNT", flattenedTexts);
+        Assert.Contains("種別: 式", flattenedTexts);
+    }
+
+    /// <summary>
     /// 空入力時も TreeView に返せる最低限のノードが生成されることを確認する。
     /// </summary>
     [Fact]

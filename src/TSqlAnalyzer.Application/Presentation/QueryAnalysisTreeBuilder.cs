@@ -153,7 +153,12 @@ public sealed class QueryAnalysisTreeBuilder
         return Node(
             "取得項目",
             query.SelectItems
-                .Select(item => Node($"項目 #{item.Sequence}: {item.DisplayText}"))
+                .Select(item => Node(
+                    $"項目 #{item.Sequence}: {item.DisplayText}",
+                    Node($"種別: {BuildSelectItemKindText(item.Kind)}"),
+                    Node($"式: {item.ExpressionText}"),
+                    Node($"別名: {item.Alias ?? "なし"}"),
+                    Node($"集計関数: {item.AggregateFunctionName ?? "なし"}")))
                 .ToArray());
     }
 
@@ -579,6 +584,20 @@ public sealed class QueryAnalysisTreeBuilder
         {
             ConditionBetweenKind.Between => "BETWEEN",
             ConditionBetweenKind.NotBetween => "NOT BETWEEN",
+            _ => "不明"
+        };
+    }
+
+    /// <summary>
+    /// SELECT 項目種別の表示名を返す。
+    /// </summary>
+    private static string BuildSelectItemKindText(SelectItemKind kind)
+    {
+        return kind switch
+        {
+            SelectItemKind.Expression => "式",
+            SelectItemKind.Wildcard => "ワイルドカード",
+            SelectItemKind.VariableAssignment => "変数代入",
             _ => "不明"
         };
     }

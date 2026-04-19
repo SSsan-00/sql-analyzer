@@ -25,6 +25,18 @@ public enum QueryExpressionKind
 }
 
 /// <summary>
+/// SELECT 項目の種別。
+/// 式、ワイルドカード、変数代入を分けておくと表示の粒度を後から上げやすい。
+/// </summary>
+public enum SelectItemKind
+{
+    Expression,
+    Wildcard,
+    VariableAssignment,
+    Unknown
+}
+
+/// <summary>
 /// JOIN の種別。
 /// 画面表示では文字列も保持するが、内部判定用に enum も持たせる。
 /// </summary>
@@ -219,9 +231,15 @@ public sealed record SetOperationQueryAnalysis(
 
 /// <summary>
 /// SELECT 項目を表す。
-/// 初期版では表示文字列を主に持ち、必要に応じて後から別フィールドを増やせる形にする。
+/// 表示文字列に加えて、式本体・別名・集計関数を分解して保持する。
 /// </summary>
-public sealed record SelectItemAnalysis(int Sequence, string DisplayText);
+public sealed record SelectItemAnalysis(
+    int Sequence,
+    string DisplayText,
+    SelectItemKind Kind,
+    string ExpressionText,
+    string? Alias,
+    string? AggregateFunctionName);
 
 /// <summary>
 /// FROM 句や JOIN 先として使われるソースを表す。

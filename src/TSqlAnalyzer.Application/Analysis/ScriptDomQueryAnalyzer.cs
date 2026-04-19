@@ -133,6 +133,25 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
     /// </summary>
     private sealed class AnalyzerCore
     {
+        private static readonly HashSet<string> AggregateFunctionNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "APPROX_COUNT_DISTINCT",
+            "AVG",
+            "CHECKSUM_AGG",
+            "COUNT",
+            "COUNT_BIG",
+            "GROUPING",
+            "GROUPING_ID",
+            "MAX",
+            "MIN",
+            "STDEV",
+            "STDEVP",
+            "STRING_AGG",
+            "SUM",
+            "VAR",
+            "VARP"
+        };
+
         private readonly SqlTextExtractor _textExtractor;
         private readonly ICollection<AnalysisNotice> _notices;
         private readonly HashSet<string> _commonTableExpressionNames;
@@ -182,7 +201,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         private SelectQueryAnalysis AnalyzeSelect(QuerySpecification querySpecification)
         {
             var selectItems = querySpecification.SelectElements
-                .Select((element, index) => new SelectItemAnalysis(index + 1, _textExtractor.Normalize(element)))
+                .Select((element, index) => AnalyzeSelectItem(element, index + 1))
                 .ToArray();
 
             var subqueries = new SubqueryAccumulator(_textExtractor);
@@ -254,6 +273,73 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 havingConditionAnalysis,
                 orderBy,
                 subqueries.ToArray());
+        }
+
+        /// <summary>
+        /// SELECT 項目を表示向けの詳細モデルへ変換する。
+        /// </summary>
+        private SelectItemAnalysis AnalyzeSelectItem(SelectElement element, int sequence)
+        {
+            return element switch
+            {
+                SelectScalarExpression scalarExpression => new SelectItemAnalysis(
+                    sequence,
+                    _textExtractor.Normalize(scalarExpression),
+                    SelectItemKind.Expression,
+                    _textExtractor.Normalize(scalarExpression.Expression),
+                    BuildSelectItemAlias(scalarExpression.ColumnName),
+                    DetectAggregateFunctionName(scalarExpression.Expression)),
+                SelectStarExpression starExpression => new SelectItemAnalysis(
+                    sequence,
+                    _textExtractor.Normalize(starExpression),
+                    SelectItemKind.Wildcard,
+                    _textExtractor.Normalize(starExpression),
+                    null,
+                    null),
+                SelectSetVariable setVariable => new SelectItemAnalysis(
+                    sequence,
+                    _textExtractor.Normalize(setVariable),
+                    SelectItemKind.VariableAssignment,
+                    _textExtractor.Normalize(setVariable.Expression),
+                    _textExtractor.Normalize(setVariable.Variable),
+                    DetectAggregateFunctionName(setVariable.Expression)),
+                _ => new SelectItemAnalysis(
+                    sequence,
+                    _textExtractor.Normalize(element),
+                    SelectItemKind.Unknown,
+                    _textExtractor.Normalize(element),
+                    null,
+                    null)
+            };
+        }
+
+        /// <summary>
+        /// SELECT 項目の別名を文字列へ変換する。
+        /// </summary>
+        private string? BuildSelectItemAlias(IdentifierOrValueExpression? aliasExpression)
+        {
+            if (aliasExpression is null)
+            {
+                return null;
+            }
+
+            var aliasText = _textExtractor.Normalize(aliasExpression);
+            return string.IsNullOrWhiteSpace(aliasText) ? null : aliasText;
+        }
+
+        /// <summary>
+        /// 式の中で最初に見つかった集計関数名を返す。
+        /// </summary>
+        private static string? DetectAggregateFunctionName(ScalarExpression? expression)
+        {
+            if (expression is null)
+            {
+                return null;
+            }
+
+            var visitor = new AggregateFunctionVisitor();
+            expression.Accept(visitor);
+            return visitor.FirstAggregateFunctionName;
         }
 
         /// <summary>
@@ -850,6 +936,31 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 }
 
                 return current;
+            }
+        }
+
+        /// <summary>
+        /// 式ツリーから最初の集計関数を検出する visitor。
+        /// </summary>
+        private sealed class AggregateFunctionVisitor : TSqlFragmentVisitor
+        {
+            public string? FirstAggregateFunctionName { get; private set; }
+
+            public override void ExplicitVisit(FunctionCall node)
+            {
+                if (FirstAggregateFunctionName is not null)
+                {
+                    return;
+                }
+
+                var functionName = node.FunctionName?.Value;
+                if (!string.IsNullOrWhiteSpace(functionName) && AggregateFunctionNames.Contains(functionName))
+                {
+                    FirstAggregateFunctionName = functionName.ToUpperInvariant();
+                    return;
+                }
+
+                base.ExplicitVisit(node);
             }
         }
 

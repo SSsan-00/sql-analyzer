@@ -40,6 +40,43 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// SELECT 項目で別名と集計関数を分解できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_SelectWithAliasesAndAggregates_ReturnsSelectItemDetails()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id AS UserId,
+                               SUM(o.Amount) AS TotalAmount,
+                               COUNT(*) OrderCount
+                           FROM dbo.Users u
+                           LEFT JOIN dbo.Orders o
+                               ON u.Id = o.UserId
+                           GROUP BY u.Id;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+
+        Assert.Equal(3, query.SelectItems.Count);
+
+        Assert.Equal(SelectItemKind.Expression, query.SelectItems[0].Kind);
+        Assert.Equal("u.Id", query.SelectItems[0].ExpressionText);
+        Assert.Equal("UserId", query.SelectItems[0].Alias);
+        Assert.Null(query.SelectItems[0].AggregateFunctionName);
+
+        Assert.Equal("SUM(o.Amount)", query.SelectItems[1].ExpressionText);
+        Assert.Equal("TotalAmount", query.SelectItems[1].Alias);
+        Assert.Equal("SUM", query.SelectItems[1].AggregateFunctionName);
+
+        Assert.Equal("COUNT(*)", query.SelectItems[2].ExpressionText);
+        Assert.Equal("OrderCount", query.SelectItems[2].Alias);
+        Assert.Equal("COUNT", query.SelectItems[2].AggregateFunctionName);
+    }
+
+    /// <summary>
     /// JOIN 表示に必要な最小情報が正しく構築されることを確認する。
     /// </summary>
     [Fact]
