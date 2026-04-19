@@ -445,11 +445,11 @@ public sealed class QueryAnalysisTreeBuilder
     {
         if (node.NodeKind == ConditionNodeKind.Predicate)
         {
-            var children = new List<DisplayTreeNode>
-            {
-                Node($"式: {node.DisplayText}"),
-                Node($"述語種別: {BuildPredicateKindText(node.PredicateKind)}")
-            };
+            var children = new List<DisplayTreeNode>();
+
+            AppendParenthesisNode(children, node);
+            children.Add(Node($"式: {node.DisplayText}"));
+            children.Add(Node($"述語種別: {BuildPredicateKindText(node.PredicateKind)}"));
 
             if (node.PredicateKind == ConditionPredicateKind.Comparison)
             {
@@ -484,9 +484,13 @@ public sealed class QueryAnalysisTreeBuilder
             return Node(BuildConditionNodeTitle(node), children.ToArray());
         }
 
+        var logicalChildren = new List<DisplayTreeNode>();
+        AppendParenthesisNode(logicalChildren, node);
+        logicalChildren.AddRange(node.Children.Select(BuildConditionLogicTreeNode));
+
         return Node(
             BuildConditionNodeTitle(node),
-            node.Children.Select(BuildConditionLogicTreeNode).ToArray());
+            logicalChildren.ToArray());
     }
 
     /// <summary>
@@ -522,6 +526,17 @@ public sealed class QueryAnalysisTreeBuilder
             ConditionNodeKind.Predicate when node.Marker is not null => BuildMarkerText(node.Marker.MarkerType),
             _ => "条件"
         };
+    }
+
+    /// <summary>
+    /// 条件ノードが括弧で囲まれていたかを表示する。
+    /// </summary>
+    private static void AppendParenthesisNode(ICollection<DisplayTreeNode> children, ConditionNodeAnalysis node)
+    {
+        if (node.IsParenthesized)
+        {
+            children.Add(Node("括弧: あり"));
+        }
     }
 
     /// <summary>

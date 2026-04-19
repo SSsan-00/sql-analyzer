@@ -272,6 +272,31 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// 括弧で囲まれた条件グループが TreeView から分かることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForParenthesizedCondition_ContainsParenthesisTexts()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE (u.IsActive = 1 OR u.Status = 'Gold')
+                             AND u.DeletedAt IS NULL;
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("括弧: あり", flattenedTexts);
+        Assert.Contains("OR", flattenedTexts);
+    }
+
+    /// <summary>
     /// 条件論理木の葉ノードに述語種別が表示されることを確認する。
     /// </summary>
     [Fact]

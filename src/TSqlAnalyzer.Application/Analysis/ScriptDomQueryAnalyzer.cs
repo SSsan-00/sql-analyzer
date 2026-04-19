@@ -731,7 +731,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 return expression switch
                 {
                     BooleanBinaryExpression binaryExpression => BuildBinaryNode(binaryExpression),
-                    BooleanParenthesisExpression parenthesisExpression => BuildNode(parenthesisExpression.Expression),
+                    BooleanParenthesisExpression parenthesisExpression => MarkParenthesized(BuildNode(parenthesisExpression.Expression)),
                     BooleanNotExpression notExpression => BuildNotNode(notExpression),
                     ExistsPredicate existsPredicate => CreateExistsPredicateNode(ConditionMarkerType.Exists, existsPredicate, existsPredicate.Subquery),
                     InPredicate inPredicate when inPredicate.Subquery is not null => CreateInPredicateNode(inPredicate),
@@ -762,6 +762,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionNullCheckKind.Unknown,
                     ConditionBetweenKind.Unknown,
                     ConditionLikeKind.Unknown,
+                    false,
                     null);
             }
 
@@ -776,12 +777,13 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 return new ConditionNodeAnalysis(
                     ConditionNodeKind.Not,
                     _textExtractor.Normalize(node),
-                    [BuildNode(innerExpression)],
+                    [BuildNode(node.Expression)],
                     ConditionPredicateKind.Unknown,
                     ConditionComparisonKind.Unknown,
                     ConditionNullCheckKind.Unknown,
                     ConditionBetweenKind.Unknown,
                     ConditionLikeKind.Unknown,
+                    false,
                     null);
             }
 
@@ -808,6 +810,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionNullCheckKind.Unknown,
                     ConditionBetweenKind.Unknown,
                     ConditionLikeKind.Unknown,
+                    false,
                     marker);
             }
 
@@ -831,6 +834,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionNullCheckKind.Unknown,
                     ConditionBetweenKind.Unknown,
                     ConditionLikeKind.Unknown,
+                    false,
                     marker);
             }
 
@@ -847,7 +851,15 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ClassifyNullCheckKind(expression),
                     ClassifyBetweenKind(expression),
                     ClassifyLikeKind(expression),
+                    false,
                     null);
+            }
+
+            private static ConditionNodeAnalysis MarkParenthesized(ConditionNodeAnalysis node)
+            {
+                return node.IsParenthesized
+                    ? node
+                    : node with { IsParenthesized = true };
             }
 
             private static ConditionPredicateKind ClassifyPredicateKind(BooleanExpression expression)

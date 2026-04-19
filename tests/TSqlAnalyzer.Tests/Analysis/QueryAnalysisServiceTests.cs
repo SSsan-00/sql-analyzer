@@ -222,6 +222,35 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// 明示的な括弧で囲まれた条件グループを保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_SelectWithParenthesizedCondition_PreservesParenthesisFlag()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE (u.IsActive = 1 OR u.Status = 'Gold')
+                             AND u.DeletedAt IS NULL;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var where = Assert.IsType<ConditionAnalysis>(query.WhereCondition);
+
+        Assert.Equal(ConditionNodeKind.And, where.RootNode.NodeKind);
+        Assert.False(where.RootNode.IsParenthesized);
+
+        var groupedNode = where.RootNode.Children[0];
+        Assert.Equal(ConditionNodeKind.Or, groupedNode.NodeKind);
+        Assert.True(groupedNode.IsParenthesized);
+
+        Assert.All(groupedNode.Children, child => Assert.False(child.IsParenthesized));
+    }
+
+    /// <summary>
     /// 条件式の葉ノードが主要な述語種別へ分類されることを確認する。
     /// </summary>
     [Fact]

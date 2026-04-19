@@ -284,6 +284,7 @@ public sealed record ConditionNodeAnalysis(
     ConditionNullCheckKind NullCheckKind,
     ConditionBetweenKind BetweenKind,
     ConditionLikeKind LikeKind,
+    bool IsParenthesized,
     ConditionMarker? Marker);
 
 /// <summary>
