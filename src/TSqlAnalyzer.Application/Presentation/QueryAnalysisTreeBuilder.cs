@@ -21,12 +21,14 @@ public sealed class QueryAnalysisTreeBuilder
 
         if (result.Query is not null)
         {
+            children.Add(BuildCommonTableExpressionsNode(result));
             children.Add(BuildQueryNode("主構造", result.Query));
             children.Add(BuildSetOperationNode(result.Query));
             children.Add(BuildSubqueryNode(result.Query));
         }
         else
         {
+            children.Add(Node("共通テーブル式", Node("なし")));
             children.Add(Node("主構造", Node("解析対象なし")));
             children.Add(Node("集合演算", Node("なし")));
             children.Add(Node("サブクエリ", Node("なし")));
@@ -58,7 +60,10 @@ public sealed class QueryAnalysisTreeBuilder
     /// </summary>
     private static DisplayTreeNode BuildOverviewNode(QueryAnalysisResult result)
     {
-        var children = new List<DisplayTreeNode>();
+        var children = new List<DisplayTreeNode>
+        {
+            Node($"CTE数: {result.CommonTableExpressions.Count}")
+        };
 
         if (result.Query is SelectQueryAnalysis selectQuery)
         {
@@ -82,6 +87,26 @@ public sealed class QueryAnalysisTreeBuilder
     }
 
     /// <summary>
+    /// CTE ノードを作る。
+    /// </summary>
+    private static DisplayTreeNode BuildCommonTableExpressionsNode(QueryAnalysisResult result)
+    {
+        if (result.CommonTableExpressions.Count == 0)
+        {
+            return Node("共通テーブル式", Node("なし"));
+        }
+
+        return Node(
+            "共通テーブル式",
+            result.CommonTableExpressions
+                .Select((cte, index) => Node(
+                    $"CTE #{index + 1}: {cte.Name}",
+                    BuildCteColumnsNode(cte),
+                    BuildQueryNode("内部構造", cte.Query)))
+                .ToArray());
+    }
+
+    /// <summary>
     /// SELECT / 集合演算に応じて主構造ノードを作る。
     /// </summary>
     private static DisplayTreeNode BuildQueryNode(string title, QueryExpressionAnalysis query)
@@ -89,10 +114,7 @@ public sealed class QueryAnalysisTreeBuilder
         return query switch
         {
             SelectQueryAnalysis selectQuery => BuildSelectNode(title, selectQuery),
-            SetOperationQueryAnalysis setOperationQuery => Node(
-                title,
-                BuildQueryNode("左クエリ", setOperationQuery.LeftQuery),
-                BuildQueryNode("右クエリ", setOperationQuery.RightQuery)),
+            SetOperationQueryAnalysis setOperationQuery => BuildSetOperationStructureNode(title, setOperationQuery),
             _ => Node(title, Node("未対応のクエリ構造です。"))
         };
     }
@@ -142,7 +164,15 @@ public sealed class QueryAnalysisTreeBuilder
             return Node("主テーブル", Node("なし"));
         }
 
-        return Node("主テーブル", Node(query.MainSource.DisplayText));
+        if (query.MainSource.NestedQuery is null)
+        {
+            return Node("主テーブル", Node(query.MainSource.DisplayText));
+        }
+
+        return Node(
+            "主テーブル",
+            Node(query.MainSource.DisplayText),
+            BuildQueryNode("主テーブルの内部構造", query.MainSource.NestedQuery));
     }
 
     /// <summary>
@@ -157,13 +187,7 @@ public sealed class QueryAnalysisTreeBuilder
 
         return Node(
             "結合",
-            query.Joins
-                .Select(join => Node(
-                    $"JOIN #{join.Sequence}",
-                    Node($"種別: {join.JoinTypeText}"),
-                    Node($"結合先: {join.TargetSource.DisplayText}"),
-                    Node($"ON条件: {join.OnConditionText ?? "なし"}")))
-                .ToArray());
+            query.Joins.Select(BuildJoinDetailNode).ToArray());
     }
 
     /// <summary>
@@ -178,21 +202,10 @@ public sealed class QueryAnalysisTreeBuilder
 
         var children = new List<DisplayTreeNode>
         {
-            Node($"条件式: {query.WhereCondition.DisplayText}")
+            Node($"条件式: {query.WhereCondition.DisplayText}"),
+            BuildConditionLogicNode(query.WhereCondition),
+            BuildConditionMarkersNode(query.WhereCondition)
         };
-
-        if (query.WhereCondition.Markers.Count == 0)
-        {
-            children.Add(Node("条件種別", Node("特記事項なし")));
-        }
-        else
-        {
-            children.Add(Node(
-                "条件種別",
-                query.WhereCondition.Markers
-                    .Select(marker => Node($"{BuildMarkerText(marker.MarkerType)}: {marker.DisplayText}"))
-                    .ToArray()));
-        }
 
         return Node("抽出条件", children.ToArray());
     }
@@ -209,9 +222,13 @@ public sealed class QueryAnalysisTreeBuilder
             children.Add(Node("GROUP BY", query.GroupBy.Items.Select(item => Node(item)).ToArray()));
         }
 
-        if (!string.IsNullOrWhiteSpace(query.HavingText))
+        if (query.HavingCondition is not null)
         {
-            children.Add(Node($"HAVING: {query.HavingText}"));
+            children.Add(Node(
+                "HAVING",
+                Node($"条件式: {query.HavingCondition.DisplayText}"),
+                BuildConditionLogicNode(query.HavingCondition),
+                BuildConditionMarkersNode(query.HavingCondition)));
         }
 
         if (children.Count == 0)
@@ -249,11 +266,7 @@ public sealed class QueryAnalysisTreeBuilder
             return Node("集合演算", Node("なし"));
         }
 
-        return Node(
-            "集合演算",
-            Node($"種別: {BuildSetOperationText(setOperationQuery.OperationType)}"),
-            BuildQueryNode("左クエリ", setOperationQuery.LeftQuery),
-            BuildQueryNode("右クエリ", setOperationQuery.RightQuery));
+        return BuildSetOperationStructureNode("集合演算", setOperationQuery);
     }
 
     /// <summary>
@@ -275,6 +288,156 @@ public sealed class QueryAnalysisTreeBuilder
                     Node($"概要: {subquery.DisplayText}"),
                     BuildQueryNode("内部構造", subquery.Query)))
                 .ToArray());
+    }
+
+    /// <summary>
+    /// CTE の列一覧ノードを作る。
+    /// </summary>
+    private static DisplayTreeNode BuildCteColumnsNode(CommonTableExpressionAnalysis cte)
+    {
+        if (cte.ColumnNames.Count == 0)
+        {
+            return Node("列定義", Node("省略"));
+        }
+
+        return Node("列定義", cte.ColumnNames.Select(columnName => Node(columnName)).ToArray());
+    }
+
+    /// <summary>
+    /// ソースが内部クエリを持つ場合だけ補助ノードを作る。
+    /// </summary>
+    private static DisplayTreeNode BuildNestedSourceNode(string title, SourceAnalysis source)
+    {
+        if (source.NestedQuery is null)
+        {
+            return Node(title);
+        }
+
+        return BuildQueryNode(title, source.NestedQuery);
+    }
+
+    /// <summary>
+    /// JOIN 詳細ノードを作る。
+    /// </summary>
+    private static DisplayTreeNode BuildJoinDetailNode(JoinAnalysis join)
+    {
+        var children = new List<DisplayTreeNode>
+        {
+            Node($"種別: {join.JoinTypeText}"),
+            Node($"結合先: {join.TargetSource.DisplayText}"),
+            Node($"ON条件: {join.OnConditionText ?? "なし"}")
+        };
+
+        if (join.TargetSource.NestedQuery is not null)
+        {
+            children.Add(BuildNestedSourceNode("結合先の内部構造", join.TargetSource));
+        }
+
+        return Node($"JOIN #{join.Sequence}", children.ToArray());
+    }
+
+    /// <summary>
+    /// 条件マーカー一覧ノードを作る。
+    /// </summary>
+    private static DisplayTreeNode BuildConditionMarkersNode(ConditionAnalysis condition)
+    {
+        if (condition.Markers.Count == 0)
+        {
+            return Node("条件種別", Node("特記事項なし"));
+        }
+
+        return Node(
+            "条件種別",
+            condition.Markers
+                .Select((marker, index) => BuildConditionMarkerNode(marker, index + 1))
+                .ToArray());
+    }
+
+    /// <summary>
+    /// 条件式の論理木ノードを作る。
+    /// 複雑な AND / OR / NOT を上から辿れるようにする。
+    /// </summary>
+    private static DisplayTreeNode BuildConditionLogicNode(ConditionAnalysis condition)
+    {
+        return Node("条件論理", BuildConditionLogicTreeNode(condition.RootNode));
+    }
+
+    /// <summary>
+    /// 条件論理木 1 ノード分を再帰的に変換する。
+    /// </summary>
+    private static DisplayTreeNode BuildConditionLogicTreeNode(ConditionNodeAnalysis node)
+    {
+        if (node.NodeKind == ConditionNodeKind.Predicate)
+        {
+            var children = new List<DisplayTreeNode>
+            {
+                Node($"式: {node.DisplayText}")
+            };
+
+            if (node.Marker is not null)
+            {
+                children.Add(Node($"種別: {BuildMarkerText(node.Marker.MarkerType)}"));
+
+                if (node.Marker.NestedQuery is not null)
+                {
+                    children.Add(BuildQueryNode("内部クエリ", node.Marker.NestedQuery));
+                }
+            }
+
+            return Node(BuildConditionNodeTitle(node), children.ToArray());
+        }
+
+        return Node(
+            BuildConditionNodeTitle(node),
+            node.Children.Select(BuildConditionLogicTreeNode).ToArray());
+    }
+
+    /// <summary>
+    /// 条件マーカー 1 件分のノードを作る。
+    /// EXISTS / IN の内部クエリがある場合は、その構造も辿れるようにする。
+    /// </summary>
+    private static DisplayTreeNode BuildConditionMarkerNode(ConditionMarker marker, int sequence)
+    {
+        var children = new List<DisplayTreeNode>
+        {
+            Node($"種別: {BuildMarkerText(marker.MarkerType)}"),
+            Node($"条件式: {marker.DisplayText}")
+        };
+
+        if (marker.NestedQuery is not null)
+        {
+            children.Add(BuildQueryNode("内部クエリ", marker.NestedQuery));
+        }
+
+        return Node($"条件 #{sequence}", children.ToArray());
+    }
+
+    /// <summary>
+    /// 条件論理木ノードの見出しを返す。
+    /// </summary>
+    private static string BuildConditionNodeTitle(ConditionNodeAnalysis node)
+    {
+        return node.NodeKind switch
+        {
+            ConditionNodeKind.And => "AND",
+            ConditionNodeKind.Or => "OR",
+            ConditionNodeKind.Not => "NOT",
+            ConditionNodeKind.Predicate when node.Marker is not null => BuildMarkerText(node.Marker.MarkerType),
+            _ => "条件"
+        };
+    }
+
+    /// <summary>
+    /// 集合演算ノードを再帰的に構築する。
+    /// 入れ子の集合演算でも種別が失われないよう、左クエリ・右クエリの上に種別を置く。
+    /// </summary>
+    private static DisplayTreeNode BuildSetOperationStructureNode(string title, SetOperationQueryAnalysis setOperationQuery)
+    {
+        return Node(
+            title,
+            Node($"種別: {BuildSetOperationText(setOperationQuery.OperationType)}"),
+            BuildQueryNode("左クエリ", setOperationQuery.LeftQuery),
+            BuildQueryNode("右クエリ", setOperationQuery.RightQuery));
     }
 
     /// <summary>

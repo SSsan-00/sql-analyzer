@@ -19,6 +19,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         {
             return new QueryAnalysisResult(
                 QueryStatementCategory.Empty,
+                [],
                 null,
                 [],
                 [new AnalysisNotice(AnalysisNoticeLevel.Warning, "SQL が入力されていません。")]);
@@ -36,6 +37,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
 
             return new QueryAnalysisResult(
                 QueryStatementCategory.ParseError,
+                [],
                 null,
                 issues,
                 [new AnalysisNotice(AnalysisNoticeLevel.Error, "SQL を構文解析できませんでした。")]);
@@ -49,6 +51,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
 
             return new QueryAnalysisResult(
                 QueryStatementCategory.Unsupported,
+                [],
                 null,
                 [],
                 notices);
@@ -60,25 +63,27 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
 
             return new QueryAnalysisResult(
                 QueryStatementCategory.Unsupported,
+                [],
                 null,
                 [],
                 notices);
         }
 
-        if (selectStatement.WithCtesAndXmlNamespaces?.CommonTableExpressions.Count > 0)
+        if (selectStatement.WithCtesAndXmlNamespaces?.XmlNamespaces is not null)
         {
             notices.Add(new AnalysisNotice(
                 AnalysisNoticeLevel.Information,
-                "WITH句(CTE) が含まれています。初期版ではクエリ本体の構造表示を優先し、CTE定義の詳細表示は今後の拡張対象です。"));
+                "XML 名前空間定義が含まれています。初期版ではクエリ本体と CTE を優先して表示します。"));
         }
 
         var core = new AnalyzerCore(sql, notices);
+        var commonTableExpressions = core.AnalyzeCommonTableExpressions(selectStatement.WithCtesAndXmlNamespaces);
         var query = core.AnalyzeQueryExpression(selectStatement.QueryExpression);
         var category = query.Kind == QueryExpressionKind.SetOperation
             ? QueryStatementCategory.SetOperation
             : QueryStatementCategory.Select;
 
-        return new QueryAnalysisResult(category, query, [], notices);
+        return new QueryAnalysisResult(category, commonTableExpressions, query, [], notices);
     }
 
     /// <summary>
@@ -141,6 +146,24 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         }
 
         /// <summary>
+        /// WITH 句の CTE 定義を解析する。
+        /// </summary>
+        public IReadOnlyList<CommonTableExpressionAnalysis> AnalyzeCommonTableExpressions(WithCtesAndXmlNamespaces? withClause)
+        {
+            if (withClause?.CommonTableExpressions is not { Count: > 0 } commonTableExpressions)
+            {
+                return [];
+            }
+
+            return commonTableExpressions
+                .Select(commonTableExpression => new CommonTableExpressionAnalysis(
+                    commonTableExpression.ExpressionName.Value,
+                    commonTableExpression.Columns?.Select(column => column.Value).ToArray() ?? [],
+                    AnalyzeQueryExpression(commonTableExpression.QueryExpression)))
+                .ToArray();
+        }
+
+        /// <summary>
         /// 単一の SELECT 文を解析する。
         /// </summary>
         private SelectQueryAnalysis AnalyzeSelect(QuerySpecification querySpecification)
@@ -185,11 +208,10 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 CollectImmediateSubqueries(groupByClause, "GROUP BY句", subqueries);
             }
 
-            string? havingText = null;
+            ConditionAnalysis? havingConditionAnalysis = null;
             if (querySpecification.HavingClause?.SearchCondition is { } havingCondition)
             {
-                havingText = _textExtractor.Normalize(havingCondition);
-                CollectImmediateSubqueries(havingCondition, "HAVING句", subqueries);
+                havingConditionAnalysis = AnalyzeCondition(havingCondition, "HAVING句", subqueries);
             }
 
             OrderByAnalysis? orderBy = null;
@@ -216,7 +238,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 joins,
                 whereCondition,
                 groupBy,
-                havingText,
+                havingConditionAnalysis,
                 orderBy,
                 subqueries.ToArray());
         }
@@ -337,10 +359,11 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         private ConditionAnalysis AnalyzeCondition(BooleanExpression condition, string locationLabel, SubqueryAccumulator accumulator)
         {
             var collector = new ConditionCollector(this, _textExtractor, locationLabel, accumulator);
-            condition.Accept(collector);
+            var rootNode = collector.Build(condition);
 
             return new ConditionAnalysis(
                 _textExtractor.Normalize(condition),
+                rootNode,
                 collector.Markers.ToArray());
         }
 
@@ -527,9 +550,9 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         }
 
         /// <summary>
-        /// WHERE 条件の EXISTS / IN などを収集する visitor。
+        /// WHERE / HAVING 条件の論理木と EXISTS / IN などを組み立てる。
         /// </summary>
-        private sealed class ConditionCollector : TSqlFragmentVisitor
+        private sealed class ConditionCollector
         {
             private readonly AnalyzerCore _core;
             private readonly SqlTextExtractor _textExtractor;
@@ -550,55 +573,122 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
 
             public List<ConditionMarker> Markers { get; } = [];
 
-            public override void ExplicitVisit(BooleanNotExpression node)
+            /// <summary>
+            /// BooleanExpression を再帰的な条件ノードへ変換する。
+            /// </summary>
+            public ConditionNodeAnalysis Build(BooleanExpression expression)
             {
-                if (node.Expression is ExistsPredicate existsPredicate)
+                return BuildNode(expression);
+            }
+
+            private ConditionNodeAnalysis BuildNode(BooleanExpression expression)
+            {
+                return expression switch
                 {
-                    AddExistsMarker(ConditionMarkerType.NotExists, node, existsPredicate.Subquery);
-                    return;
+                    BooleanBinaryExpression binaryExpression => BuildBinaryNode(binaryExpression),
+                    BooleanParenthesisExpression parenthesisExpression => BuildNode(parenthesisExpression.Expression),
+                    BooleanNotExpression notExpression => BuildNotNode(notExpression),
+                    ExistsPredicate existsPredicate => CreateExistsPredicateNode(ConditionMarkerType.Exists, existsPredicate, existsPredicate.Subquery),
+                    InPredicate inPredicate when inPredicate.Subquery is not null => CreateInPredicateNode(inPredicate),
+                    _ => CreatePlainPredicateNode(expression)
+                };
+            }
+
+            private ConditionNodeAnalysis BuildBinaryNode(BooleanBinaryExpression node)
+            {
+                var nodeKind = node.BinaryExpressionType switch
+                {
+                    BooleanBinaryExpressionType.And => ConditionNodeKind.And,
+                    BooleanBinaryExpressionType.Or => ConditionNodeKind.Or,
+                    _ => ConditionNodeKind.Predicate
+                };
+
+                if (nodeKind == ConditionNodeKind.Predicate)
+                {
+                    return CreatePlainPredicateNode(node);
                 }
 
-                base.ExplicitVisit(node);
+                return new ConditionNodeAnalysis(
+                    nodeKind,
+                    _textExtractor.Normalize(node),
+                    [BuildNode(node.FirstExpression), BuildNode(node.SecondExpression)],
+                    null);
             }
 
-            public override void ExplicitVisit(ExistsPredicate node)
+            private ConditionNodeAnalysis BuildNotNode(BooleanNotExpression node)
             {
-                AddExistsMarker(ConditionMarkerType.Exists, node, node.Subquery);
-            }
-
-            public override void ExplicitVisit(InPredicate node)
-            {
-                if (node.Subquery is not null)
+                var innerExpression = UnwrapParentheses(node.Expression);
+                if (innerExpression is ExistsPredicate existsPredicate)
                 {
-                    var nestedQuery = _core.AnalyzeQueryExpression(node.Subquery.QueryExpression);
-                    var markerType = node.NotDefined ? ConditionMarkerType.NotIn : ConditionMarkerType.In;
-                    Markers.Add(new ConditionMarker(
-                        markerType,
-                        _textExtractor.Normalize(node),
-                        nestedQuery));
-
-                    _subqueries.Add(_locationLabel, node.Subquery, nestedQuery);
-                    return;
+                    return CreateExistsPredicateNode(ConditionMarkerType.NotExists, node, existsPredicate.Subquery);
                 }
 
-                base.ExplicitVisit(node);
+                return new ConditionNodeAnalysis(
+                    ConditionNodeKind.Not,
+                    _textExtractor.Normalize(node),
+                    [BuildNode(innerExpression)],
+                    null);
             }
 
-            public override void ExplicitVisit(ScalarSubquery node)
-            {
-                var nestedQuery = _core.AnalyzeQueryExpression(node.QueryExpression);
-                _subqueries.Add(_locationLabel, node, nestedQuery);
-            }
-
-            private void AddExistsMarker(ConditionMarkerType markerType, TSqlFragment markerFragment, ScalarSubquery subquery)
+            private ConditionNodeAnalysis CreateExistsPredicateNode(
+                ConditionMarkerType markerType,
+                TSqlFragment markerFragment,
+                ScalarSubquery subquery)
             {
                 var nestedQuery = _core.AnalyzeQueryExpression(subquery.QueryExpression);
-                Markers.Add(new ConditionMarker(
+                var marker = new ConditionMarker(
                     markerType,
                     _textExtractor.Normalize(markerFragment),
-                    nestedQuery));
+                    nestedQuery);
+                Markers.Add(marker);
 
                 _subqueries.Add(_locationLabel, subquery, nestedQuery);
+
+                return new ConditionNodeAnalysis(
+                    ConditionNodeKind.Predicate,
+                    marker.DisplayText,
+                    [],
+                    marker);
+            }
+
+            private ConditionNodeAnalysis CreateInPredicateNode(InPredicate node)
+            {
+                var nestedQuery = _core.AnalyzeQueryExpression(node.Subquery!.QueryExpression);
+                var marker = new ConditionMarker(
+                    node.NotDefined ? ConditionMarkerType.NotIn : ConditionMarkerType.In,
+                    _textExtractor.Normalize(node),
+                    nestedQuery);
+                Markers.Add(marker);
+
+                _subqueries.Add(_locationLabel, node.Subquery, nestedQuery);
+
+                return new ConditionNodeAnalysis(
+                    ConditionNodeKind.Predicate,
+                    marker.DisplayText,
+                    [],
+                    marker);
+            }
+
+            private ConditionNodeAnalysis CreatePlainPredicateNode(BooleanExpression expression)
+            {
+                _core.CollectImmediateSubqueries(expression, _locationLabel, _subqueries);
+
+                return new ConditionNodeAnalysis(
+                    ConditionNodeKind.Predicate,
+                    _textExtractor.Normalize(expression),
+                    [],
+                    null);
+            }
+
+            private static BooleanExpression UnwrapParentheses(BooleanExpression expression)
+            {
+                var current = expression;
+                while (current is BooleanParenthesisExpression parenthesisExpression)
+                {
+                    current = parenthesisExpression.Expression;
+                }
+
+                return current;
             }
         }
 

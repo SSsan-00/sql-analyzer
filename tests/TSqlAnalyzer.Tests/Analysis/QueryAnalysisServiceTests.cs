@@ -151,6 +151,40 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// 複雑な WHERE 条件でも AND / OR / NOT の階層を保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_SelectWithNestedLogicalCondition_BuildsConditionTree()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE (u.IsActive = 1 OR u.Status = 'Gold')
+                             AND NOT EXISTS (
+                                 SELECT 1
+                                 FROM dbo.BlockedUsers bu
+                                 WHERE bu.UserId = u.Id
+                             );
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var where = Assert.IsType<ConditionAnalysis>(query.WhereCondition);
+
+        Assert.Equal(ConditionNodeKind.And, where.RootNode.NodeKind);
+        Assert.Equal(2, where.RootNode.Children.Count);
+        Assert.Equal(ConditionNodeKind.Or, where.RootNode.Children[0].NodeKind);
+        Assert.All(where.RootNode.Children[0].Children, child => Assert.Equal(ConditionNodeKind.Predicate, child.NodeKind));
+
+        var notExistsNode = where.RootNode.Children[1];
+        Assert.Equal(ConditionNodeKind.Predicate, notExistsNode.NodeKind);
+        Assert.NotNull(notExistsNode.Marker);
+        Assert.Equal(ConditionMarkerType.NotExists, notExistsNode.Marker!.MarkerType);
+    }
+
+    /// <summary>
     /// 集合演算の種類を区別できることを確認する。
     /// </summary>
     [Theory]
@@ -177,6 +211,113 @@ public sealed class QueryAnalysisServiceTests
         Assert.Equal(expectedType, query.OperationType);
         Assert.IsType<SelectQueryAnalysis>(query.LeftQuery);
         Assert.IsType<SelectQueryAnalysis>(query.RightQuery);
+    }
+
+    /// <summary>
+    /// 入れ子になった集合演算でも左右の階層を保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_NestedSetOperation_PreservesHierarchy()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           UNION ALL
+                           (
+                               SELECT
+                                   a.UserId
+                               FROM dbo.ArchiveUsers a
+                               INTERSECT
+                               SELECT
+                                   p.UserId
+                               FROM dbo.PremiumUsers p
+                           );
+                           """;
+
+        var result = service.Analyze(sql);
+
+        Assert.Equal(QueryStatementCategory.SetOperation, result.StatementCategory);
+
+        var root = Assert.IsType<SetOperationQueryAnalysis>(result.Query);
+        Assert.Equal(SetOperationType.UnionAll, root.OperationType);
+        Assert.IsType<SelectQueryAnalysis>(root.LeftQuery);
+
+        var nested = Assert.IsType<SetOperationQueryAnalysis>(root.RightQuery);
+        Assert.Equal(SetOperationType.Intersect, nested.OperationType);
+        Assert.IsType<SelectQueryAnalysis>(nested.LeftQuery);
+        Assert.IsType<SelectQueryAnalysis>(nested.RightQuery);
+    }
+
+    /// <summary>
+    /// CTE と派生テーブル JOIN を含む複雑な SELECT を保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_ComplexQueryWithCteAndDerivedJoin_ReturnsDetailedStructure()
+    {
+        var service = CreateService();
+        const string sql = """
+                           WITH recent_orders AS (
+                               SELECT
+                                   o.UserId,
+                                   o.OrderId,
+                                   o.OrderDate
+                               FROM dbo.Orders o
+                               WHERE o.OrderDate >= '2026-01-01'
+                           ),
+                           payment_summary AS (
+                               SELECT
+                                   p.UserId,
+                                   COUNT(*) AS PaymentCount
+                               FROM dbo.Payments p
+                               GROUP BY p.UserId
+                           )
+                           SELECT
+                               ro.UserId,
+                               ps.PaymentCount
+                           FROM recent_orders ro
+                           INNER JOIN (
+                               SELECT
+                                   i.UserId,
+                                   SUM(i.Amount) AS TotalAmount
+                               FROM dbo.InvoiceItems i
+                               GROUP BY i.UserId
+                           ) invoice_total
+                               ON ro.UserId = invoice_total.UserId
+                           LEFT JOIN payment_summary ps
+                               ON ro.UserId = ps.UserId
+                           WHERE NOT EXISTS (
+                               SELECT 1
+                               FROM dbo.BlockedUsers bu
+                               WHERE bu.UserId = ro.UserId
+                           )
+                           GROUP BY
+                               ro.UserId,
+                               ps.PaymentCount
+                           HAVING COUNT(*) > 0
+                           ORDER BY ro.UserId;
+                           """;
+
+        var result = service.Analyze(sql);
+
+        Assert.Equal(QueryStatementCategory.Select, result.StatementCategory);
+        Assert.Equal(2, result.CommonTableExpressions.Count);
+        Assert.Equal("recent_orders", result.CommonTableExpressions[0].Name);
+        Assert.Equal("payment_summary", result.CommonTableExpressions[1].Name);
+
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        Assert.Equal(2, query.Joins.Count);
+        Assert.Equal(JoinType.Inner, query.Joins[0].JoinType);
+        Assert.NotNull(query.Joins[0].TargetSource.NestedQuery);
+        Assert.Equal(JoinType.Left, query.Joins[1].JoinType);
+        Assert.NotNull(query.GroupBy);
+        Assert.Equal(2, query.GroupBy!.Items.Count);
+        Assert.NotNull(query.HavingCondition);
+        Assert.Contains("COUNT(*) > 0", query.HavingCondition!.DisplayText);
+        Assert.Contains(query.WhereCondition!.Markers, marker => marker.MarkerType == ConditionMarkerType.NotExists);
+        Assert.Contains(query.Subqueries, subquery => subquery.Location == "JOIN句");
+        Assert.Contains(query.Subqueries, subquery => subquery.Location == "WHERE句");
     }
 
     /// <summary>

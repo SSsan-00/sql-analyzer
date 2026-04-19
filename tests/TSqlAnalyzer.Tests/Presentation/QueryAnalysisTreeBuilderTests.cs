@@ -62,6 +62,149 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains(flattenedTexts, text => text.Contains("入力", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// CTE と派生テーブル JOIN を含む場合、追いやすい補助ノードが生成されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForComplexQuery_ContainsCteAndNestedSourceNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           WITH recent_orders AS (
+                               SELECT
+                                   o.UserId,
+                                   o.OrderId
+                               FROM dbo.Orders o
+                           )
+                           SELECT
+                               ro.UserId,
+                               invoice_total.TotalAmount
+                           FROM recent_orders ro
+                           INNER JOIN (
+                               SELECT
+                                   i.UserId,
+                                   SUM(i.Amount) AS TotalAmount
+                               FROM dbo.InvoiceItems i
+                               GROUP BY i.UserId
+                           ) invoice_total
+                               ON ro.UserId = invoice_total.UserId;
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("共通テーブル式", flattenedTexts);
+        Assert.Contains("CTE #1: recent_orders", flattenedTexts);
+        Assert.Contains("JOIN #1", flattenedTexts);
+        Assert.Contains("結合先の内部構造", flattenedTexts);
+        Assert.Contains("内部構造", flattenedTexts);
+        Assert.Contains(flattenedTexts, text => text.Contains("SUM(i.Amount)", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 条件マーカー配下から EXISTS の内部クエリを辿れることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForExistsCondition_ContainsMarkerNestedQueryNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE EXISTS (
+                               SELECT
+                                   1
+                               FROM dbo.Orders o
+                               WHERE o.UserId = u.Id
+                           );
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("条件種別", flattenedTexts);
+        Assert.Contains("条件 #1", flattenedTexts);
+        Assert.Contains("種別: EXISTS", flattenedTexts);
+        Assert.Contains("内部クエリ", flattenedTexts);
+        Assert.Contains(flattenedTexts, text => text.Contains("dbo.Orders o", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 論理条件が入れ子の場合、条件論理ノードから構造を追えることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForNestedLogicalCondition_ContainsConditionTreeNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE (u.IsActive = 1 OR u.Status = 'Gold')
+                             AND NOT EXISTS (
+                                 SELECT 1
+                                 FROM dbo.BlockedUsers bu
+                                 WHERE bu.UserId = u.Id
+                             );
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("条件論理", flattenedTexts);
+        Assert.Contains("AND", flattenedTexts);
+        Assert.Contains("OR", flattenedTexts);
+        Assert.Contains("NOT EXISTS", flattenedTexts);
+        Assert.Contains(flattenedTexts, text => text.Contains("u.IsActive = 1", StringComparison.Ordinal));
+        Assert.Contains(flattenedTexts, text => text.Contains("dbo.BlockedUsers bu", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 入れ子の集合演算でも種別を追える TreeView になることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForNestedSetOperation_ContainsRecursiveOperationNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           UNION ALL
+                           (
+                               SELECT
+                                   a.UserId
+                               FROM dbo.ArchiveUsers a
+                               INTERSECT
+                               SELECT
+                                   p.UserId
+                               FROM dbo.PremiumUsers p
+                           );
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("集合演算", flattenedTexts);
+        Assert.Contains("種別: UNION ALL", flattenedTexts);
+        Assert.Contains("右クエリ", flattenedTexts);
+        Assert.Contains("種別: INTERSECT", flattenedTexts);
+        Assert.Contains(flattenedTexts, text => text.Contains("dbo.PremiumUsers", StringComparison.Ordinal));
+    }
+
     private static IEnumerable<string> Flatten(DisplayTreeNode node)
     {
         yield return node.Text;

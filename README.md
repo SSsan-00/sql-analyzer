@@ -23,13 +23,16 @@
   - GROUP BY
   - HAVING
   - ORDER BY
-  - TOP
-  - DISTINCT
-  - サブクエリ
-  - EXISTS / NOT EXISTS
-  - IN / NOT IN
-  - UNION / UNION ALL / EXCEPT / INTERSECT
+- TOP
+- DISTINCT
+- CTE
+- サブクエリ
+- EXISTS / NOT EXISTS
+- IN / NOT IN
+- UNION / UNION ALL / EXCEPT / INTERSECT
 - JOIN 表示を `種別 / 結合先 / ON条件` の形式で統一できる
+- 派生テーブルや JOIN 先サブクエリの内部構造を TreeView で追える
+- WHERE / HAVING 条件を `AND / OR / NOT` の論理木として表示できる
 - TreeView 表示用の UI 非依存モデルへ変換できる
 
 ## この初期版でまだ未対応のこと
@@ -44,7 +47,6 @@
 - TRY / CATCH
 - 一時テーブル操作の完全解析
 - ストアドプロシージャ全体の制御フロー解析
-- CTE 定義一覧の詳細表示
 - 詳細ペインやプロパティ表示などの補助 UI
 
 ## 設計方針
@@ -66,6 +68,7 @@ src/
 tests/
   TSqlAnalyzer.Tests
 TSqlAnalyzer.slnx
+TSqlAnalyzer.Runtime.slnx
 ```
 
 - `TSqlAnalyzer.Domain`
@@ -76,6 +79,8 @@ TSqlAnalyzer.slnx
   - 画面表示、入力受付、TreeView 反映を担当する
 - `TSqlAnalyzer.Tests`
   - 解析ロジックと表示モデル変換ロジックを xUnit で検証する
+- `TSqlAnalyzer.Runtime.slnx`
+  - bootstrap 展開先で使うプロダクションコード専用ソリューション
 
 ## 開発方法
 
@@ -113,26 +118,61 @@ dotnet run --project src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj
 
 ## 単一ファイル bootstrap 配布
 
-リポジトリを clone できない相手向けに、単一の `csproj` だけでソース一式を展開できる bootstrap 配布物を用意している。
+リポジトリを clone できない相手向けに、単一の `csproj` だけでプロダクションコード一式を展開できる bootstrap 配布物を用意している。
 
 - 配布ファイル: `bootstrap/TSqlAnalyzer.Bootstrap.csproj`
-- 想定用途: GitHub Web UI や社内ドキュメントから 1 ファイルだけをコピーし、ローカルで展開・build/test を行う
+- 想定用途: GitHub Web UI や社内ドキュメントから 1 ファイルだけをコピーし、ローカルで展開・build・publish を行う
+- 詳細手順: `docs/WindowsBootstrapToExe.md`
 
-### 利用手順
+重要:
 
-1. 空の作業ディレクトリを作る。
-2. `bootstrap/TSqlAnalyzer.Bootstrap.csproj` の内容を `TSqlAnalyzer.Bootstrap.csproj` という名前で保存する。
-3. そのディレクトリで次を実行する。
+- bootstrap 展開物には `tests/` を含めない
+- 単一ファイル配布先では xUnit を使わず、`TSqlAnalyzer.Runtime.slnx` と WinForms プロジェクトだけで build / publish できるようにしている
+- xUnit を使った TDD は、リポジトリを clone できる開発端末で `TSqlAnalyzer.slnx` に対して行う
+
+### 最短手順
+
+1. 空の作業ディレクトリを作る
+2. `bootstrap/TSqlAnalyzer.Bootstrap.csproj` の内容を `TSqlAnalyzer.Bootstrap.csproj` として保存する
+3. そのディレクトリで bootstrap を実行する
 
 ```powershell
 dotnet build TSqlAnalyzer.Bootstrap.csproj
 ```
 
-### 既定動作
+4. 展開されたソースへ移動する
 
-- `./extracted/TSqlAnalyzer/` にソース一式を展開する
-- 展開後の `TSqlAnalyzer.slnx` に対して `dotnet build` を実行する
-- 続けて `dotnet test` を実行する
+```powershell
+cd .\extracted\TSqlAnalyzer
+```
+
+5. 展開されたプロダクションコードをビルドする
+
+```powershell
+dotnet build .\TSqlAnalyzer.Runtime.slnx -c Release
+```
+
+6. 配布用 `exe` を作る
+
+```powershell
+dotnet publish .\src\TSqlAnalyzer.WinForms\TSqlAnalyzer.WinForms.csproj `
+  -c Release `
+  -r win-x64 `
+  --self-contained true `
+  -p:PublishSingleFile=true
+```
+
+7. 生成された `exe` を起動する
+
+```powershell
+.\src\TSqlAnalyzer.WinForms\bin\Release\net10.0-windows\win-x64\publish\TSqlAnalyzer.WinForms.exe
+```
+
+### bootstrap の既定動作
+
+- `./extracted/TSqlAnalyzer/` にプロダクションコード一式を展開する
+- 展開後の `TSqlAnalyzer.Runtime.slnx` に対して `dotnet build` を実行する
+- テストプロジェクトは含めない
 
 ### よく使う切り替え
 
@@ -142,21 +182,24 @@ dotnet build TSqlAnalyzer.Bootstrap.csproj
 dotnet build TSqlAnalyzer.Bootstrap.csproj -p:ExtractRoot=C:\work\TSqlAnalyzer
 ```
 
-展開だけ行い、展開先の build/test は後で手動実行する:
+展開だけ行い、展開先の build は後で手動実行する:
 
 ```powershell
-dotnet build TSqlAnalyzer.Bootstrap.csproj -p:RunExtractedBuild=false -p:RunExtractedTest=false
+dotnet build TSqlAnalyzer.Bootstrap.csproj -p:RunExtractedBuild=false
 ```
 
-### 展開後の確認
+### bootstrap 実行後の確認
 
 展開後に WinForms 画面を起動する場合は、展開先ディレクトリで次を実行する。
 
 ```powershell
-dotnet run --project extracted/TSqlAnalyzer/src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj
+dotnet run --project src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj
 ```
 
 ## Windows での動作確認手順
+
+clone できる場合の通常手順はこの節を使う。clone できない場合は `docs/WindowsBootstrapToExe.md` を参照する。
+開発端末では `TSqlAnalyzer.slnx` を使って test まで行い、配布先では `TSqlAnalyzer.Runtime.slnx` と `WinForms` プロジェクトだけで実行確認する。
 
 ### 前提
 
@@ -221,9 +264,12 @@ ORDER BY u.Id;
 - `クエリ解析結果` がルート表示される
 - `主構造` 配下に `取得項目` `主テーブル` `結合` `抽出条件` `並び順` が出る
 - `結合` 配下に `JOIN #1` が出る
+- `抽出条件` 配下に `条件論理` が出る
 - `サブクエリ` 配下に WHERE 句由来のサブクエリが出る
 
 ## ビルド成果物作成手順
+
+clone 済みリポジトリから `exe` を作る手順。単一ファイル bootstrap から始める場合も、展開後は同じ手順になる。
 
 ### 開発用ビルド
 
@@ -284,9 +330,9 @@ dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.c
 
 ## ビルド成果物作成に必要なソース一覧
 
-### 必須
+### プロダクションコードの build / publish に必須
 
-- `TSqlAnalyzer.slnx`
+- `TSqlAnalyzer.Runtime.slnx`
 - `src/TSqlAnalyzer.Domain/TSqlAnalyzer.Domain.csproj`
 - `src/TSqlAnalyzer.Domain/Analysis/QueryAnalysisModels.cs`
 - `src/TSqlAnalyzer.Application/TSqlAnalyzer.Application.csproj`
@@ -302,8 +348,9 @@ dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.c
 - `src/TSqlAnalyzer.WinForms/MainForm.Designer.cs`
 - `src/TSqlAnalyzer.WinForms/UI/AnalysisTreeViewBinder.cs`
 
-### 検証用
+### 開発端末での test に追加で必要
 
+- `TSqlAnalyzer.slnx`
 - `tests/TSqlAnalyzer.Tests/TSqlAnalyzer.Tests.csproj`
 - `tests/TSqlAnalyzer.Tests/Analysis/QueryAnalysisServiceTests.cs`
 - `tests/TSqlAnalyzer.Tests/Presentation/QueryAnalysisTreeBuilderTests.cs`
@@ -326,7 +373,7 @@ dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.c
 
 - CTE 定義ノードの表示
 - サブクエリの出現位置をより細かく分類
-- 条件式の論理木表示
+- 条件式論理木の詳細化
 - 詳細ペイン追加
 - 解析結果のエクスポート
 - Windows 向け単一 `exe` 配布フロー整備

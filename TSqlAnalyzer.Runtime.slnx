@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TSqlAnalyzer.Application/TSqlAnalyzer.Application.csproj" />
+    <Project Path="src/TSqlAnalyzer.Domain/TSqlAnalyzer.Domain.csproj" />
+    <Project Path="src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj" />
+  </Folder>
+</Solution>

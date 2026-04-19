@@ -63,6 +63,18 @@ public enum ConditionMarkerType
 }
 
 /// <summary>
+/// 条件式論理木のノード種別。
+/// AND / OR / NOT と通常述語を分けておくと、TreeView で構造表示しやすい。
+/// </summary>
+public enum ConditionNodeKind
+{
+    And,
+    Or,
+    Not,
+    Predicate
+}
+
+/// <summary>
 /// UI に伝える注意情報の重要度。
 /// エラー・警告・補足を同一の仕組みで扱えるようにしている。
 /// </summary>
@@ -79,6 +91,7 @@ public enum AnalysisNoticeLevel
 /// </summary>
 public sealed record QueryAnalysisResult(
     QueryStatementCategory StatementCategory,
+    IReadOnlyList<CommonTableExpressionAnalysis> CommonTableExpressions,
     QueryExpressionAnalysis? Query,
     IReadOnlyList<ParseIssue> ParseIssues,
     IReadOnlyList<AnalysisNotice> Notices);
@@ -101,10 +114,19 @@ public sealed record SelectQueryAnalysis(
     IReadOnlyList<JoinAnalysis> Joins,
     ConditionAnalysis? WhereCondition,
     GroupByAnalysis? GroupBy,
-    string? HavingText,
+    ConditionAnalysis? HavingCondition,
     OrderByAnalysis? OrderBy,
     IReadOnlyList<SubqueryAnalysis> Subqueries)
     : QueryExpressionAnalysis(QueryExpressionKind.Select);
+
+/// <summary>
+/// CTE の 1 定義を表す。
+/// 定義名と内部クエリを保持し、複雑なクエリの前段構造を追えるようにする。
+/// </summary>
+public sealed record CommonTableExpressionAnalysis(
+    string Name,
+    IReadOnlyList<string> ColumnNames,
+    QueryExpressionAnalysis Query);
 
 /// <summary>
 /// UNION / EXCEPT / INTERSECT などの集合演算を表す。
@@ -145,7 +167,18 @@ public sealed record JoinAnalysis(
 /// </summary>
 public sealed record ConditionAnalysis(
     string DisplayText,
+    ConditionNodeAnalysis RootNode,
     IReadOnlyList<ConditionMarker> Markers);
+
+/// <summary>
+/// 条件式の論理木 1 ノード分。
+/// マーカー付き述語もこのノードにぶら下げることで、条件種別一覧と論理木を両立できる。
+/// </summary>
+public sealed record ConditionNodeAnalysis(
+    ConditionNodeKind NodeKind,
+    string DisplayText,
+    IReadOnlyList<ConditionNodeAnalysis> Children,
+    ConditionMarker? Marker);
 
 /// <summary>
 /// 条件式の中で検出した注目ポイント。

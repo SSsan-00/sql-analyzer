@@ -137,7 +137,7 @@ internal static class Program
 
     /// <summary>
     /// 単一ファイル bootstrap 用の csproj テキストを組み立てる。
-    /// build 時に展開、必要なら展開先に対する build/test まで行う。
+    /// build 時に展開し、必要なら展開先の実行用ソリューションを build する。
     /// </summary>
     private static string BuildBootstrapProjectText(string archivePayload, int bundledFileCount)
     {
@@ -145,7 +145,7 @@ internal static class Program
                  <!--
                    このファイルは tools/BootstrapProjectGenerator で生成した。
                    この 1 ファイルを任意ディレクトリへ保存し、dotnet build すると
-                   展開先に TSqlAnalyzer のソース一式を書き出せる。
+                   展開先に TSqlAnalyzer のプロダクションコード一式を書き出せる。
                  -->
                  <Project Sdk="Microsoft.NET.Sdk">
                    <PropertyGroup>
@@ -157,8 +157,8 @@ internal static class Program
                      <EnableDefaultItems>false</EnableDefaultItems>
                      <ExtractRoot Condition="'$(ExtractRoot)' == ''">$(MSBuildProjectDirectory)/extracted/TSqlAnalyzer</ExtractRoot>
                      <RunExtractedBuild Condition="'$(RunExtractedBuild)' == ''">true</RunExtractedBuild>
-                     <RunExtractedTest Condition="'$(RunExtractedTest)' == ''">true</RunExtractedTest>
                      <VerificationConfiguration Condition="'$(VerificationConfiguration)' == ''">Debug</VerificationConfiguration>
+                     <VerificationSolutionPath Condition="'$(VerificationSolutionPath)' == ''">TSqlAnalyzer.Runtime.slnx</VerificationSolutionPath>
                      <DotNetCommand Condition="'$(DotNetCommand)' == ''">dotnet</DotNetCommand>
                      <BundledFileCount>{{bundledFileCount}}</BundledFileCount>
                      <ArchivePayload>{{archivePayload}}</ArchivePayload>
@@ -215,12 +215,9 @@ internal static class Program
                    </Target>
 
                    <Target Name="VerifyExtractedRepository" AfterTargets="Build">
-                     <Message Importance="High" Text="Building extracted solution at $(ExtractRoot)" Condition="'$(RunExtractedBuild)' == 'true'" />
-                     <Exec Command="&quot;$(DotNetCommand)&quot; build &quot;$(ExtractRoot)/TSqlAnalyzer.slnx&quot; -c $(VerificationConfiguration) -m:1 -nr:false"
+                     <Message Importance="High" Text="Building extracted solution at $(ExtractRoot)/$(VerificationSolutionPath)" Condition="'$(RunExtractedBuild)' == 'true'" />
+                     <Exec Command="&quot;$(DotNetCommand)&quot; build &quot;$(ExtractRoot)/$(VerificationSolutionPath)&quot; -c $(VerificationConfiguration) -m:1 -nr:false"
                            Condition="'$(RunExtractedBuild)' == 'true'" />
-                     <Message Importance="High" Text="Testing extracted solution at $(ExtractRoot)" Condition="'$(RunExtractedTest)' == 'true'" />
-                     <Exec Command="&quot;$(DotNetCommand)&quot; test &quot;$(ExtractRoot)/TSqlAnalyzer.slnx&quot; -c $(VerificationConfiguration) -m:1 -nr:false"
-                           Condition="'$(RunExtractedTest)' == 'true'" />
                    </Target>
                  </Project>
                  """;

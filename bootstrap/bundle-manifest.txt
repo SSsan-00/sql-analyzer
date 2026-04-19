@@ -1,7 +1,8 @@
 # 単一ファイル bootstrap に含める配布対象
 .gitignore
 README.md
-TSqlAnalyzer.slnx
+TSqlAnalyzer.Runtime.slnx
+docs/WindowsBootstrapToExe.md
 src/TSqlAnalyzer.Domain/TSqlAnalyzer.Domain.csproj
 src/TSqlAnalyzer.Domain/Analysis/QueryAnalysisModels.cs
 src/TSqlAnalyzer.Application/TSqlAnalyzer.Application.csproj
@@ -16,6 +17,3 @@ src/TSqlAnalyzer.WinForms/Program.cs
 src/TSqlAnalyzer.WinForms/MainForm.cs
 src/TSqlAnalyzer.WinForms/MainForm.Designer.cs
 src/TSqlAnalyzer.WinForms/UI/AnalysisTreeViewBinder.cs
-tests/TSqlAnalyzer.Tests/TSqlAnalyzer.Tests.csproj
-tests/TSqlAnalyzer.Tests/Analysis/QueryAnalysisServiceTests.cs
-tests/TSqlAnalyzer.Tests/Presentation/QueryAnalysisTreeBuilderTests.cs
