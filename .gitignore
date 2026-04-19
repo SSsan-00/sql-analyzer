@@ -22,6 +22,9 @@ coverage-results/
 *.nupkg
 packages/
 
+# bootstrap 展開物
+bootstrap/extracted/
+
 # OS 固有ファイル
 .DS_Store
 Thumbs.db

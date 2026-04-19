@@ -111,6 +111,51 @@ Windows 環境で次を実行する。
 dotnet run --project src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj
 ```
 
+## 単一ファイル bootstrap 配布
+
+リポジトリを clone できない相手向けに、単一の `csproj` だけでソース一式を展開できる bootstrap 配布物を用意している。
+
+- 配布ファイル: `bootstrap/TSqlAnalyzer.Bootstrap.csproj`
+- 想定用途: GitHub Web UI や社内ドキュメントから 1 ファイルだけをコピーし、ローカルで展開・build/test を行う
+
+### 利用手順
+
+1. 空の作業ディレクトリを作る。
+2. `bootstrap/TSqlAnalyzer.Bootstrap.csproj` の内容を `TSqlAnalyzer.Bootstrap.csproj` という名前で保存する。
+3. そのディレクトリで次を実行する。
+
+```powershell
+dotnet build TSqlAnalyzer.Bootstrap.csproj
+```
+
+### 既定動作
+
+- `./extracted/TSqlAnalyzer/` にソース一式を展開する
+- 展開後の `TSqlAnalyzer.slnx` に対して `dotnet build` を実行する
+- 続けて `dotnet test` を実行する
+
+### よく使う切り替え
+
+展開先を変える:
+
+```powershell
+dotnet build TSqlAnalyzer.Bootstrap.csproj -p:ExtractRoot=C:\work\TSqlAnalyzer
+```
+
+展開だけ行い、展開先の build/test は後で手動実行する:
+
+```powershell
+dotnet build TSqlAnalyzer.Bootstrap.csproj -p:RunExtractedBuild=false -p:RunExtractedTest=false
+```
+
+### 展開後の確認
+
+展開後に WinForms 画面を起動する場合は、展開先ディレクトリで次を実行する。
+
+```powershell
+dotnet run --project extracted/TSqlAnalyzer/src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj
+```
+
 ## Windows での動作確認手順
 
 ### 前提
@@ -219,6 +264,23 @@ dotnet publish src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj `
 1. `dotnet test TSqlAnalyzer.slnx -c Release`
 2. publish 出力先の `TSqlAnalyzer.WinForms.exe` を別ディレクトリへコピーする
 3. その `exe` を起動し、前述の動作確認用 SQL で画面挙動を確認する
+
+## bootstrap 再生成手順
+
+開発側で配布用 bootstrap を更新する場合は、次を実行する。
+
+```powershell
+dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.csproj
+```
+
+関連ファイル:
+
+- `bootstrap/bundle-manifest.txt`
+  - bootstrap に含めるファイル一覧
+- `bootstrap/TSqlAnalyzer.Bootstrap.csproj`
+  - 配布用の生成結果
+- `tools/BootstrapProjectGenerator/`
+  - 生成ツール本体
 
 ## ビルド成果物作成に必要なソース一覧
 
