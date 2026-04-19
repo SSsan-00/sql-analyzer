@@ -450,6 +450,16 @@ public sealed class QueryAnalysisTreeBuilder
                 children.Add(Node($"比較種別: {BuildComparisonKindText(node.ComparisonKind)}"));
             }
 
+            if (node.PredicateKind == ConditionPredicateKind.NullCheck)
+            {
+                children.Add(Node($"NULL判定種別: {BuildNullCheckKindText(node.NullCheckKind)}"));
+            }
+
+            if (node.PredicateKind == ConditionPredicateKind.Between)
+            {
+                children.Add(Node($"範囲種別: {BuildBetweenKindText(node.BetweenKind)}"));
+            }
+
             if (node.Marker is not null)
             {
                 children.Add(Node($"種別: {BuildMarkerText(node.Marker.MarkerType)}"));
@@ -537,6 +547,32 @@ public sealed class QueryAnalysisTreeBuilder
             ConditionComparisonKind.NotGreaterThan => "超過ではない (!>)",
             ConditionComparisonKind.IsDistinctFrom => "IS DISTINCT FROM",
             ConditionComparisonKind.IsNotDistinctFrom => "IS NOT DISTINCT FROM",
+            _ => "不明"
+        };
+    }
+
+    /// <summary>
+    /// NULL 判定種別の表示名を返す。
+    /// </summary>
+    private static string BuildNullCheckKindText(ConditionNullCheckKind nullCheckKind)
+    {
+        return nullCheckKind switch
+        {
+            ConditionNullCheckKind.IsNull => "IS NULL",
+            ConditionNullCheckKind.IsNotNull => "IS NOT NULL",
+            _ => "不明"
+        };
+    }
+
+    /// <summary>
+    /// BETWEEN 種別の表示名を返す。
+    /// </summary>
+    private static string BuildBetweenKindText(ConditionBetweenKind betweenKind)
+    {
+        return betweenKind switch
+        {
+            ConditionBetweenKind.Between => "BETWEEN",
+            ConditionBetweenKind.NotBetween => "NOT BETWEEN",
             _ => "不明"
         };
     }

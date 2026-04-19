@@ -258,6 +258,36 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// NULL 判定と BETWEEN 系では詳細種別まで保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_SelectWithNullAndBetweenPredicates_ClassifiesDetailKinds()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE u.DeletedAt IS NULL
+                             AND u.ClosedAt IS NOT NULL
+                             AND u.Score BETWEEN 1 AND 10
+                             AND u.Rank NOT BETWEEN 100 AND 200;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var where = Assert.IsType<ConditionAnalysis>(query.WhereCondition);
+        var predicateNodes = FlattenConditionNodes(where.RootNode)
+            .Where(node => node.NodeKind == ConditionNodeKind.Predicate)
+            .ToArray();
+
+        Assert.Contains(predicateNodes, node => node.NullCheckKind == ConditionNullCheckKind.IsNull);
+        Assert.Contains(predicateNodes, node => node.NullCheckKind == ConditionNullCheckKind.IsNotNull);
+        Assert.Contains(predicateNodes, node => node.BetweenKind == ConditionBetweenKind.Between);
+        Assert.Contains(predicateNodes, node => node.BetweenKind == ConditionBetweenKind.NotBetween);
+    }
+
+    /// <summary>
     /// 集合演算の種類を区別できることを確認する。
     /// </summary>
     [Theory]

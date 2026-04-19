@@ -673,6 +673,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     [BuildNode(node.FirstExpression), BuildNode(node.SecondExpression)],
                     ConditionPredicateKind.Unknown,
                     ConditionComparisonKind.Unknown,
+                    ConditionNullCheckKind.Unknown,
+                    ConditionBetweenKind.Unknown,
                     null);
             }
 
@@ -690,6 +692,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     [BuildNode(innerExpression)],
                     ConditionPredicateKind.Unknown,
                     ConditionComparisonKind.Unknown,
+                    ConditionNullCheckKind.Unknown,
+                    ConditionBetweenKind.Unknown,
                     null);
             }
 
@@ -713,6 +717,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     [],
                     ConditionPredicateKind.Exists,
                     ConditionComparisonKind.Unknown,
+                    ConditionNullCheckKind.Unknown,
+                    ConditionBetweenKind.Unknown,
                     marker);
             }
 
@@ -733,6 +739,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     [],
                     ConditionPredicateKind.In,
                     ConditionComparisonKind.Unknown,
+                    ConditionNullCheckKind.Unknown,
+                    ConditionBetweenKind.Unknown,
                     marker);
             }
 
@@ -746,6 +754,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     [],
                     ClassifyPredicateKind(expression),
                     ClassifyComparisonKind(expression),
+                    ClassifyNullCheckKind(expression),
+                    ClassifyBetweenKind(expression),
                     null);
             }
 
@@ -784,6 +794,33 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     BooleanComparisonType.IsDistinctFrom => ConditionComparisonKind.IsDistinctFrom,
                     BooleanComparisonType.IsNotDistinctFrom => ConditionComparisonKind.IsNotDistinctFrom,
                     _ => ConditionComparisonKind.Unknown
+                };
+            }
+
+            private static ConditionNullCheckKind ClassifyNullCheckKind(BooleanExpression expression)
+            {
+                if (expression is not BooleanIsNullExpression isNullExpression)
+                {
+                    return ConditionNullCheckKind.Unknown;
+                }
+
+                return isNullExpression.IsNot
+                    ? ConditionNullCheckKind.IsNotNull
+                    : ConditionNullCheckKind.IsNull;
+            }
+
+            private static ConditionBetweenKind ClassifyBetweenKind(BooleanExpression expression)
+            {
+                if (expression is not BooleanTernaryExpression ternaryExpression)
+                {
+                    return ConditionBetweenKind.Unknown;
+                }
+
+                return ternaryExpression.TernaryExpressionType switch
+                {
+                    BooleanTernaryExpressionType.Between => ConditionBetweenKind.Between,
+                    BooleanTernaryExpressionType.NotBetween => ConditionBetweenKind.NotBetween,
+                    _ => ConditionBetweenKind.Unknown
                 };
             }
 

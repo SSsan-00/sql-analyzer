@@ -302,6 +302,35 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// NULL 判定と BETWEEN 系の詳細種別が表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForNullAndBetweenPredicates_ContainsDetailKindTexts()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE u.DeletedAt IS NULL
+                             AND u.ClosedAt IS NOT NULL
+                             AND u.Score BETWEEN 1 AND 10
+                             AND u.Rank NOT BETWEEN 100 AND 200;
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("NULL判定種別: IS NULL", flattenedTexts);
+        Assert.Contains("NULL判定種別: IS NOT NULL", flattenedTexts);
+        Assert.Contains("範囲種別: BETWEEN", flattenedTexts);
+        Assert.Contains("範囲種別: NOT BETWEEN", flattenedTexts);
+    }
+
+    /// <summary>
     /// 入れ子の集合演算でも種別を追える TreeView になることを確認する。
     /// </summary>
     [Fact]

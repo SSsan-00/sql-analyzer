@@ -121,6 +121,28 @@ public enum ConditionComparisonKind
 }
 
 /// <summary>
+/// NULL 判定述語の種別。
+/// IS NULL と IS NOT NULL を分けると、削除フラグや終了日時の見分けが付きやすくなる。
+/// </summary>
+public enum ConditionNullCheckKind
+{
+    Unknown,
+    IsNull,
+    IsNotNull
+}
+
+/// <summary>
+/// BETWEEN 述語の種別。
+/// NOT BETWEEN を別扱いにしておくと、条件の意味を読み違えにくくなる。
+/// </summary>
+public enum ConditionBetweenKind
+{
+    Unknown,
+    Between,
+    NotBetween
+}
+
+/// <summary>
 /// UI に伝える注意情報の重要度。
 /// エラー・警告・補足を同一の仕組みで扱えるようにしている。
 /// </summary>
@@ -230,6 +252,8 @@ public sealed record ConditionNodeAnalysis(
     IReadOnlyList<ConditionNodeAnalysis> Children,
     ConditionPredicateKind PredicateKind,
     ConditionComparisonKind ComparisonKind,
+    ConditionNullCheckKind NullCheckKind,
+    ConditionBetweenKind BetweenKind,
     ConditionMarker? Marker);
 
 /// <summary>
