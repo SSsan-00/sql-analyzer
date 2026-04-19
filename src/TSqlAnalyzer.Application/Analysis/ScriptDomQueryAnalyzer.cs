@@ -675,6 +675,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionComparisonKind.Unknown,
                     ConditionNullCheckKind.Unknown,
                     ConditionBetweenKind.Unknown,
+                    ConditionLikeKind.Unknown,
                     null);
             }
 
@@ -694,6 +695,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionComparisonKind.Unknown,
                     ConditionNullCheckKind.Unknown,
                     ConditionBetweenKind.Unknown,
+                    ConditionLikeKind.Unknown,
                     null);
             }
 
@@ -719,6 +721,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionComparisonKind.Unknown,
                     ConditionNullCheckKind.Unknown,
                     ConditionBetweenKind.Unknown,
+                    ConditionLikeKind.Unknown,
                     marker);
             }
 
@@ -741,6 +744,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionComparisonKind.Unknown,
                     ConditionNullCheckKind.Unknown,
                     ConditionBetweenKind.Unknown,
+                    ConditionLikeKind.Unknown,
                     marker);
             }
 
@@ -756,6 +760,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ClassifyComparisonKind(expression),
                     ClassifyNullCheckKind(expression),
                     ClassifyBetweenKind(expression),
+                    ClassifyLikeKind(expression),
                     null);
             }
 
@@ -822,6 +827,18 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     BooleanTernaryExpressionType.NotBetween => ConditionBetweenKind.NotBetween,
                     _ => ConditionBetweenKind.Unknown
                 };
+            }
+
+            private static ConditionLikeKind ClassifyLikeKind(BooleanExpression expression)
+            {
+                if (expression is not LikePredicate likePredicate)
+                {
+                    return ConditionLikeKind.Unknown;
+                }
+
+                return likePredicate.NotDefined
+                    ? ConditionLikeKind.NotLike
+                    : ConditionLikeKind.Like;
             }
 
             private static BooleanExpression UnwrapParentheses(BooleanExpression expression)

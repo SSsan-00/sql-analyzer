@@ -460,6 +460,11 @@ public sealed class QueryAnalysisTreeBuilder
                 children.Add(Node($"範囲種別: {BuildBetweenKindText(node.BetweenKind)}"));
             }
 
+            if (node.PredicateKind == ConditionPredicateKind.Like)
+            {
+                children.Add(Node($"LIKE種別: {BuildLikeKindText(node.LikeKind)}"));
+            }
+
             if (node.Marker is not null)
             {
                 children.Add(Node($"種別: {BuildMarkerText(node.Marker.MarkerType)}"));
@@ -573,6 +578,19 @@ public sealed class QueryAnalysisTreeBuilder
         {
             ConditionBetweenKind.Between => "BETWEEN",
             ConditionBetweenKind.NotBetween => "NOT BETWEEN",
+            _ => "不明"
+        };
+    }
+
+    /// <summary>
+    /// LIKE 種別の表示名を返す。
+    /// </summary>
+    private static string BuildLikeKindText(ConditionLikeKind likeKind)
+    {
+        return likeKind switch
+        {
+            ConditionLikeKind.Like => "LIKE",
+            ConditionLikeKind.NotLike => "NOT LIKE",
             _ => "不明"
         };
     }

@@ -143,6 +143,17 @@ public enum ConditionBetweenKind
 }
 
 /// <summary>
+/// LIKE 述語の種別。
+/// NOT LIKE を別扱いにしておくと、否定条件を見落としにくくなる。
+/// </summary>
+public enum ConditionLikeKind
+{
+    Unknown,
+    Like,
+    NotLike
+}
+
+/// <summary>
 /// UI に伝える注意情報の重要度。
 /// エラー・警告・補足を同一の仕組みで扱えるようにしている。
 /// </summary>
@@ -254,6 +265,7 @@ public sealed record ConditionNodeAnalysis(
     ConditionComparisonKind ComparisonKind,
     ConditionNullCheckKind NullCheckKind,
     ConditionBetweenKind BetweenKind,
+    ConditionLikeKind LikeKind,
     ConditionMarker? Marker);
 
 /// <summary>

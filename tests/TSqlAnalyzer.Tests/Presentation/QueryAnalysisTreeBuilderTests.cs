@@ -331,6 +331,31 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// LIKE 系の詳細種別が表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForLikePredicates_ContainsLikeKindTexts()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE u.Name LIKE 'A%'
+                             AND u.Code NOT LIKE 'TMP%';
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("LIKE種別: LIKE", flattenedTexts);
+        Assert.Contains("LIKE種別: NOT LIKE", flattenedTexts);
+    }
+
+    /// <summary>
     /// 入れ子の集合演算でも種別を追える TreeView になることを確認する。
     /// </summary>
     [Fact]

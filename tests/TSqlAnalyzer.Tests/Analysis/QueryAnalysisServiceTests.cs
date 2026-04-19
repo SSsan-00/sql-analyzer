@@ -288,6 +288,32 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// LIKE 系では LIKE と NOT LIKE を区別できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_SelectWithLikePredicates_ClassifiesLikeKinds()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           WHERE u.Name LIKE 'A%'
+                             AND u.Code NOT LIKE 'TMP%';
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var where = Assert.IsType<ConditionAnalysis>(query.WhereCondition);
+        var predicateNodes = FlattenConditionNodes(where.RootNode)
+            .Where(node => node.NodeKind == ConditionNodeKind.Predicate)
+            .ToArray();
+
+        Assert.Contains(predicateNodes, node => node.LikeKind == ConditionLikeKind.Like);
+        Assert.Contains(predicateNodes, node => node.LikeKind == ConditionLikeKind.NotLike);
+    }
+
+    /// <summary>
     /// 集合演算の種類を区別できることを確認する。
     /// </summary>
     [Theory]
