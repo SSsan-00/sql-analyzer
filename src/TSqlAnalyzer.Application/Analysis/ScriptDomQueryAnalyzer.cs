@@ -259,10 +259,6 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         /// </summary>
         private SelectQueryAnalysis AnalyzeSelect(QuerySpecification querySpecification)
         {
-            var selectItems = querySpecification.SelectElements
-                .Select((element, index) => AnalyzeSelectItem(element, index + 1))
-                .ToArray();
-
             var subqueries = new SubqueryAccumulator(_textExtractor);
             SourceAnalysis? mainSource = null;
             IReadOnlyList<JoinAnalysis> joins = [];
@@ -282,37 +278,61 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 }
             }
 
+            var sourceIndex = BuildSourceIndex(mainSource, joins);
+
+            var selectItems = querySpecification.SelectElements
+                .Select((element, index) => ResolveColumnReferences(AnalyzeSelectItem(element, index + 1), sourceIndex))
+                .ToArray();
+
             ConditionAnalysis? whereCondition = null;
             if (querySpecification.WhereClause?.SearchCondition is { } searchCondition)
             {
-                whereCondition = AnalyzeCondition(searchCondition, "WHERE句", subqueries);
+                whereCondition = ResolveColumnReferences(AnalyzeCondition(searchCondition, "WHERE句", subqueries), sourceIndex);
             }
 
             GroupByAnalysis? groupBy = null;
             if (querySpecification.GroupByClause is { GroupingSpecifications.Count: > 0 } groupByClause)
             {
-                var items = groupByClause.GroupingSpecifications
-                    .Select(grouping => _textExtractor.Normalize(grouping))
+                var groupingItems = groupByClause.GroupingSpecifications
+                    .Select((grouping, index) => AnalyzeGroupByItem(grouping, index + 1))
+                    .ToArray();
+                var items = groupingItems
+                    .Select(groupingItem => groupingItem.DisplayText)
                     .ToArray();
 
-                groupBy = new GroupByAnalysis(items, _textExtractor.Normalize(groupByClause), CreateTextSpan(groupByClause));
+                groupBy = new GroupByAnalysis(items, _textExtractor.Normalize(groupByClause), CreateTextSpan(groupByClause))
+                {
+                    GroupingItems = groupingItems
+                        .Select(groupingItem => ResolveColumnReferences(groupingItem, sourceIndex))
+                        .ToArray(),
+                    ColumnReferences = ResolveColumnReferences(CollectColumnReferences(groupByClause), sourceIndex)
+                };
                 CollectImmediateSubqueries(groupByClause, "GROUP BY句", subqueries);
             }
 
             ConditionAnalysis? havingConditionAnalysis = null;
             if (querySpecification.HavingClause?.SearchCondition is { } havingCondition)
             {
-                havingConditionAnalysis = AnalyzeCondition(havingCondition, "HAVING句", subqueries);
+                havingConditionAnalysis = ResolveColumnReferences(AnalyzeCondition(havingCondition, "HAVING句", subqueries), sourceIndex);
             }
 
             OrderByAnalysis? orderBy = null;
             if (querySpecification.OrderByClause is { OrderByElements.Count: > 0 } orderByClause)
             {
-                var items = orderByClause.OrderByElements
-                    .Select(orderByElement => _textExtractor.Normalize(orderByElement))
+                var orderItems = orderByClause.OrderByElements
+                    .Select((orderByElement, index) => AnalyzeOrderByItem(orderByElement, index + 1))
+                    .ToArray();
+                var items = orderItems
+                    .Select(orderItem => orderItem.DisplayText)
                     .ToArray();
 
-                orderBy = new OrderByAnalysis(items, _textExtractor.Normalize(orderByClause), CreateTextSpan(orderByClause));
+                orderBy = new OrderByAnalysis(items, _textExtractor.Normalize(orderByClause), CreateTextSpan(orderByClause))
+                {
+                    OrderItems = orderItems
+                        .Select(orderItem => ResolveColumnReferences(orderItem, sourceIndex))
+                        .ToArray(),
+                    ColumnReferences = ResolveColumnReferences(CollectColumnReferences(orderByClause), sourceIndex)
+                };
                 CollectImmediateSubqueries(orderByClause, "ORDER BY句", subqueries);
             }
 
@@ -491,7 +511,10 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     DetectAggregateFunctionName(scalarExpression.Expression),
                     SelectWildcardKind.None,
                     null,
-                    CreateTextSpan(scalarExpression)),
+                    CreateTextSpan(scalarExpression))
+                {
+                    ColumnReferences = CollectColumnReferences(scalarExpression.Expression)
+                },
                 SelectStarExpression starExpression => new SelectItemAnalysis(
                     sequence,
                     _textExtractor.Normalize(starExpression),
@@ -511,7 +534,10 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     DetectAggregateFunctionName(setVariable.Expression),
                     SelectWildcardKind.None,
                     null,
-                    CreateTextSpan(setVariable)),
+                    CreateTextSpan(setVariable))
+                {
+                    ColumnReferences = CollectColumnReferences(setVariable.Expression)
+                },
                 _ => new SelectItemAnalysis(
                     sequence,
                     _textExtractor.Normalize(element),
@@ -522,6 +548,9 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     SelectWildcardKind.None,
                     null,
                     CreateTextSpan(element))
+                {
+                    ColumnReferences = CollectColumnReferences(element)
+                }
             };
         }
 
@@ -757,6 +786,280 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         }
 
         /// <summary>
+        /// GROUP BY 項目 1 件分を解析する。
+        /// 項目ごとの式と参照列を分けて保持し、表示を細かくできるようにする。
+        /// </summary>
+        private GroupByItemAnalysis AnalyzeGroupByItem(GroupingSpecification groupingSpecification, int sequence)
+        {
+            var expressionText = groupingSpecification switch
+            {
+                ExpressionGroupingSpecification expressionGrouping => _textExtractor.Normalize(expressionGrouping.Expression),
+                _ => _textExtractor.Normalize(groupingSpecification)
+            };
+
+            return new GroupByItemAnalysis(
+                sequence,
+                _textExtractor.Normalize(groupingSpecification),
+                expressionText,
+                CreateTextSpan(groupingSpecification))
+            {
+                ColumnReferences = CollectColumnReferences(groupingSpecification)
+            };
+        }
+
+        /// <summary>
+        /// ORDER BY 項目 1 件分を解析する。
+        /// 式と方向を構造化し、列参照も別で保持する。
+        /// </summary>
+        private OrderByItemAnalysis AnalyzeOrderByItem(ExpressionWithSortOrder orderByElement, int sequence)
+        {
+            return new OrderByItemAnalysis(
+                sequence,
+                _textExtractor.Normalize(orderByElement),
+                _textExtractor.Normalize(orderByElement.Expression),
+                MapOrderByDirection(orderByElement.SortOrder),
+                CreateTextSpan(orderByElement))
+            {
+                ColumnReferences = CollectColumnReferences(orderByElement.Expression)
+            };
+        }
+
+        /// <summary>
+        /// 任意の断片に含まれる列参照を順序付きで集める。
+        /// サブクエリ内部は別構造で追えるため、ここでは潜らずに止める。
+        /// </summary>
+        private IReadOnlyList<ColumnReferenceAnalysis> CollectColumnReferences(TSqlFragment? fragment)
+        {
+            if (fragment is null)
+            {
+                return [];
+            }
+
+            var collector = new ColumnReferenceCollector(_textExtractor);
+            fragment.Accept(collector);
+            return collector.Items;
+        }
+
+        /// <summary>
+        /// 現在のクエリで利用できるソース一覧から、別名解決用の索引を作る。
+        /// 修飾子付き列参照だけを安全に解決するために使う。
+        /// </summary>
+        private static SourceResolutionIndex BuildSourceIndex(
+            SourceAnalysis? mainSource,
+            IReadOnlyList<JoinAnalysis> joins,
+            params SourceAnalysis[] additionalSources)
+        {
+            var entries = new Dictionary<string, List<SourceAnalysis>>(StringComparer.OrdinalIgnoreCase);
+
+            AddSourceToIndex(entries, mainSource);
+
+            foreach (var join in joins)
+            {
+                AddSourceToIndex(entries, join.TargetSource);
+            }
+
+            foreach (var source in additionalSources)
+            {
+                AddSourceToIndex(entries, source);
+            }
+
+            return new SourceResolutionIndex(entries);
+        }
+
+        /// <summary>
+        /// SELECT 項目の列参照をソースへ解決する。
+        /// </summary>
+        private static SelectItemAnalysis ResolveColumnReferences(SelectItemAnalysis selectItem, SourceResolutionIndex sourceIndex)
+        {
+            return selectItem with
+            {
+                ColumnReferences = ResolveColumnReferences(selectItem.ColumnReferences, sourceIndex)
+            };
+        }
+
+        /// <summary>
+        /// GROUP BY 項目の列参照をソースへ解決する。
+        /// </summary>
+        private static GroupByItemAnalysis ResolveColumnReferences(GroupByItemAnalysis groupByItem, SourceResolutionIndex sourceIndex)
+        {
+            return groupByItem with
+            {
+                ColumnReferences = ResolveColumnReferences(groupByItem.ColumnReferences, sourceIndex)
+            };
+        }
+
+        /// <summary>
+        /// ORDER BY 項目の列参照をソースへ解決する。
+        /// </summary>
+        private static OrderByItemAnalysis ResolveColumnReferences(OrderByItemAnalysis orderByItem, SourceResolutionIndex sourceIndex)
+        {
+            return orderByItem with
+            {
+                ColumnReferences = ResolveColumnReferences(orderByItem.ColumnReferences, sourceIndex)
+            };
+        }
+
+        /// <summary>
+        /// JOIN 条件分割の列参照をソースへ解決する。
+        /// </summary>
+        private static IReadOnlyList<JoinConditionPartAnalysis> ResolveColumnReferences(
+            IReadOnlyList<JoinConditionPartAnalysis> joinConditionParts,
+            SourceResolutionIndex sourceIndex)
+        {
+            return joinConditionParts
+                .Select(joinConditionPart => joinConditionPart with
+                {
+                    ColumnReferences = ResolveColumnReferences(joinConditionPart.ColumnReferences, sourceIndex)
+                })
+                .ToArray();
+        }
+
+        /// <summary>
+        /// 条件式全体の列参照をソースへ解決する。
+        /// </summary>
+        private static ConditionAnalysis ResolveColumnReferences(ConditionAnalysis condition, SourceResolutionIndex sourceIndex)
+        {
+            return condition with
+            {
+                ColumnReferences = ResolveColumnReferences(condition.ColumnReferences, sourceIndex),
+                RootNode = ResolveColumnReferences(condition.RootNode, sourceIndex)
+            };
+        }
+
+        /// <summary>
+        /// 条件式ノードの列参照を再帰的にソースへ解決する。
+        /// </summary>
+        private static ConditionNodeAnalysis ResolveColumnReferences(ConditionNodeAnalysis node, SourceResolutionIndex sourceIndex)
+        {
+            return node with
+            {
+                ColumnReferences = ResolveColumnReferences(node.ColumnReferences, sourceIndex),
+                Children = node.Children
+                    .Select(child => ResolveColumnReferences(child, sourceIndex))
+                    .ToArray()
+            };
+        }
+
+        /// <summary>
+        /// 生の列参照一覧をソース解決済みへ変換する。
+        /// 無修飾列は今は安全側で未解決として残す。
+        /// </summary>
+        private static IReadOnlyList<ColumnReferenceAnalysis> ResolveColumnReferences(
+            IReadOnlyList<ColumnReferenceAnalysis> columnReferences,
+            SourceResolutionIndex sourceIndex)
+        {
+            return columnReferences
+                .Select(columnReference => ResolveColumnReference(columnReference, sourceIndex))
+                .ToArray();
+        }
+
+        /// <summary>
+        /// 列参照 1 件をソースへ解決する。
+        /// </summary>
+        private static ColumnReferenceAnalysis ResolveColumnReference(
+            ColumnReferenceAnalysis columnReference,
+            SourceResolutionIndex sourceIndex)
+        {
+            if (string.IsNullOrWhiteSpace(columnReference.Qualifier))
+            {
+                return columnReference with
+                {
+                    ResolutionStatus = ColumnReferenceResolutionStatus.Unresolved
+                };
+            }
+
+            var candidates = sourceIndex.Resolve(columnReference.Qualifier);
+            if (candidates.Count == 0)
+            {
+                return columnReference with
+                {
+                    ResolutionStatus = ColumnReferenceResolutionStatus.Unresolved
+                };
+            }
+
+            if (candidates.Count > 1)
+            {
+                return columnReference with
+                {
+                    ResolutionStatus = ColumnReferenceResolutionStatus.Ambiguous
+                };
+            }
+
+            var source = candidates[0];
+            return columnReference with
+            {
+                ResolutionStatus = ColumnReferenceResolutionStatus.Resolved,
+                ResolvedSourceDisplayText = source.DisplayText,
+                ResolvedSourceName = source.SourceName,
+                ResolvedSourceAlias = source.Alias,
+                ResolvedSourceKind = source.SourceKind
+            };
+        }
+
+        /// <summary>
+        /// 解決対象となるソースを索引へ追加する。
+        /// 別名、完全名、末尾名をキーとして登録する。
+        /// </summary>
+        private static void AddSourceToIndex(IDictionary<string, List<SourceAnalysis>> entries, SourceAnalysis? source)
+        {
+            if (source is null)
+            {
+                return;
+            }
+
+            foreach (var key in EnumerateSourceKeys(source))
+            {
+                if (!entries.TryGetValue(key, out var sources))
+                {
+                    sources = [];
+                    entries[key] = sources;
+                }
+
+                sources.Add(source);
+            }
+        }
+
+        /// <summary>
+        /// ソース解決に使うキー一覧を返す。
+        /// </summary>
+        private static IEnumerable<string> EnumerateSourceKeys(SourceAnalysis source)
+        {
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(source.Alias))
+            {
+                keys.Add(source.Alias);
+            }
+
+            if (!string.IsNullOrWhiteSpace(source.SourceName))
+            {
+                keys.Add(source.SourceName);
+
+                var segments = source.SourceName.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (segments.Length > 0)
+                {
+                    keys.Add(segments[^1]);
+                }
+            }
+
+            return keys;
+        }
+
+        /// <summary>
+        /// 別名識別子を正規化して返す。
+        /// </summary>
+        private string? NormalizeAlias(Identifier? alias)
+        {
+            if (alias is null)
+            {
+                return null;
+            }
+
+            var aliasText = _textExtractor.Normalize(alias);
+            return string.IsNullOrWhiteSpace(aliasText) ? null : aliasText;
+        }
+
+        /// <summary>
         /// 集合演算を解析する。
         /// </summary>
         private SetOperationQueryAnalysis AnalyzeSetOperation(BinaryQueryExpression binaryQueryExpression)
@@ -787,13 +1090,14 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     var left = AnalyzeTableReference(qualifiedJoin.FirstTableReference, locationLabel);
                     var right = AnalyzeSource(qualifiedJoin.SecondTableReference, "JOIN句");
                     var joins = left.Joins.ToList();
+                    var sourceIndex = BuildSourceIndex(left.MainSource, left.Joins, right.Source);
                     joins.Add(new JoinAnalysis(
                         joins.Count + 1,
                         MapJoinType(qualifiedJoin.QualifiedJoinType),
                         FormatJoinType(qualifiedJoin.QualifiedJoinType),
                         right.Source,
                         NormalizeOrNull(qualifiedJoin.SearchCondition),
-                        BuildJoinConditionParts(qualifiedJoin.SearchCondition),
+                        ResolveColumnReferences(BuildJoinConditionParts(qualifiedJoin.SearchCondition), sourceIndex),
                         CreateTextSpan(qualifiedJoin)));
 
                     return new TableReferenceAnalysisResult(
@@ -862,6 +1166,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     nestedQuery,
                     SourceKind.DerivedTable,
                     null,
+                    NormalizeAlias(derivedTable.Alias),
                     CreateTextSpan(tableReference));
                 var subquery = new SubqueryAnalysis(
                     locationLabel,
@@ -885,6 +1190,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                         null,
                         sourceKind,
                         sourceName,
+                        NormalizeAlias(namedTableReference.Alias),
                         CreateTextSpan(tableReference)),
                     []);
             }
@@ -894,6 +1200,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     _textExtractor.Normalize(tableReference),
                     null,
                     SourceKind.Unknown,
+                    null,
                     null,
                     CreateTextSpan(tableReference)),
                 []);
@@ -915,6 +1222,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 null,
                 sourceKind,
                 sourceName,
+                null,
                 CreateTextSpan(schemaObjectName));
         }
 
@@ -996,7 +1304,10 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 _textExtractor.Normalize(condition),
                 rootNode,
                 collector.Markers.ToArray(),
-                CreateTextSpan(condition));
+                CreateTextSpan(condition))
+            {
+                ColumnReferences = CollectColumnReferences(condition)
+            };
         }
 
         /// <summary>
@@ -1115,6 +1426,21 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         }
 
         /// <summary>
+        /// ORDER BY の方向を内部 enum へ変換する。
+        /// 方向が省略されている場合は ASC 扱いだが、未指定だった事実は残す。
+        /// </summary>
+        private static OrderByDirection MapOrderByDirection(SortOrder sortOrder)
+        {
+            return sortOrder switch
+            {
+                SortOrder.Descending => OrderByDirection.Descending,
+                SortOrder.Ascending => OrderByDirection.Ascending,
+                SortOrder.NotSpecified => OrderByDirection.Ascending,
+                _ => OrderByDirection.Unspecified
+            };
+        }
+
+        /// <summary>
         /// 予期しない QueryExpression を見つけたときの退避用ノード。
         /// </summary>
         private SelectQueryAnalysis CreateFallbackSelect(string message)
@@ -1179,7 +1505,10 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 .Select((part, index) => new JoinConditionPartAnalysis(
                     index + 1,
                     _textExtractor.Normalize(part),
-                    CreateTextSpan(part)))
+                    CreateTextSpan(part))
+                {
+                    ColumnReferences = CollectColumnReferences(part)
+                })
                 .ToArray();
         }
 
@@ -1217,6 +1546,21 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         private sealed record SourceAnalysisResult(
             SourceAnalysis Source,
             IReadOnlyList<SubqueryAnalysis> Subqueries);
+
+        /// <summary>
+        /// 別名やソース名からソース定義を引くための索引。
+        /// 1 つのキーに複数ソースがぶら下がる場合は曖昧解決として扱う。
+        /// </summary>
+        private sealed record SourceResolutionIndex(
+            IReadOnlyDictionary<string, List<SourceAnalysis>> Entries)
+        {
+            public IReadOnlyList<SourceAnalysis> Resolve(string qualifier)
+            {
+                return Entries.TryGetValue(qualifier, out var sources)
+                    ? sources
+                    : [];
+            }
+        }
 
         /// <summary>
         /// サブクエリの重複登録を防ぎつつ蓄積する。
@@ -1386,7 +1730,10 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionLikeKind.Unknown,
                     false,
                     marker,
-                    CreateTextSpan(markerFragment));
+                    CreateTextSpan(markerFragment))
+                {
+                    ColumnReferences = _core.CollectColumnReferences(markerFragment)
+                };
             }
 
             private ConditionNodeAnalysis CreateInPredicateNode(InPredicate node)
@@ -1412,7 +1759,10 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionLikeKind.Unknown,
                     false,
                     marker,
-                    CreateTextSpan(node));
+                    CreateTextSpan(node))
+                {
+                    ColumnReferences = _core.CollectColumnReferences(node)
+                };
             }
 
             private ConditionNodeAnalysis CreatePlainPredicateNode(BooleanExpression expression)
@@ -1430,7 +1780,10 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ClassifyLikeKind(expression),
                     false,
                     null,
-                    CreateTextSpan(expression));
+                    CreateTextSpan(expression))
+                {
+                    ColumnReferences = _core.CollectColumnReferences(expression)
+                };
             }
 
             private static ConditionNodeAnalysis MarkParenthesized(ConditionNodeAnalysis node)
@@ -1551,6 +1904,66 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 }
 
                 base.ExplicitVisit(node);
+            }
+        }
+
+        /// <summary>
+        /// 式から列参照だけを取り出す visitor。
+        /// サブクエリ内部は別構造で解析するため、ここでは潜らない。
+        /// </summary>
+        private sealed class ColumnReferenceCollector : TSqlFragmentVisitor
+        {
+            private readonly SqlTextExtractor _textExtractor;
+            private readonly List<ColumnReferenceAnalysis> _items = [];
+            private readonly HashSet<string> _keys = [];
+
+            public ColumnReferenceCollector(SqlTextExtractor textExtractor)
+            {
+                _textExtractor = textExtractor;
+            }
+
+            public IReadOnlyList<ColumnReferenceAnalysis> Items => _items;
+
+            public override void ExplicitVisit(ColumnReferenceExpression node)
+            {
+                var displayText = _textExtractor.Normalize(node);
+                if (string.IsNullOrWhiteSpace(displayText))
+                {
+                    return;
+                }
+
+                var key = $"{node.StartOffset}:{node.FragmentLength}:{displayText}";
+                if (!_keys.Add(key))
+                {
+                    return;
+                }
+
+                var identifiers = node.MultiPartIdentifier?.Identifiers
+                    .Select(identifier => identifier.Value)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .ToArray() ?? [];
+
+                var columnName = identifiers.Length > 0
+                    ? identifiers[^1]
+                    : displayText;
+                var qualifier = identifiers.Length > 1
+                    ? string.Join(".", identifiers.Take(identifiers.Length - 1))
+                    : null;
+
+                _items.Add(new ColumnReferenceAnalysis(
+                    _items.Count + 1,
+                    displayText,
+                    qualifier,
+                    columnName,
+                    CreateTextSpan(node)));
+            }
+
+            public override void ExplicitVisit(ScalarSubquery node)
+            {
+            }
+
+            public override void ExplicitVisit(QueryDerivedTable node)
+            {
             }
         }
 

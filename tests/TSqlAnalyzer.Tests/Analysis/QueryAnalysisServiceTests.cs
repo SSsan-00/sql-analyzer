@@ -77,6 +77,141 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// SELECT / JOIN / WHERE / HAVING の各式から参照列を抽出し、別名からソースへ解決できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_QueryExpressions_ReturnResolvedColumnReferences()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id,
+                               SUM(o.Amount) AS TotalAmount
+                           FROM dbo.Users u
+                           INNER JOIN dbo.Orders o
+                               ON u.Id = o.UserId
+                              AND o.Status = 'Open'
+                           WHERE u.IsActive = 1
+                             AND o.Amount > 0
+                           GROUP BY u.Id
+                           HAVING SUM(o.Amount) > 100;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+
+        Assert.Collection(
+            query.SelectItems[0].ColumnReferences,
+            column =>
+            {
+                Assert.Equal("u", column.Qualifier);
+                Assert.Equal("Id", column.ColumnName);
+                Assert.Equal(ColumnReferenceResolutionStatus.Resolved, column.ResolutionStatus);
+                Assert.Equal("dbo.Users u", column.ResolvedSourceDisplayText);
+                Assert.Equal("dbo.Users", column.ResolvedSourceName);
+                Assert.Equal("u", column.ResolvedSourceAlias);
+                Assert.Equal(SourceKind.Object, column.ResolvedSourceKind);
+            });
+
+        Assert.Collection(
+            query.SelectItems[1].ColumnReferences,
+            first =>
+            {
+                Assert.Equal("o", first.Qualifier);
+                Assert.Equal("Amount", first.ColumnName);
+                Assert.Equal(ColumnReferenceResolutionStatus.Resolved, first.ResolutionStatus);
+                Assert.Equal("dbo.Orders o", first.ResolvedSourceDisplayText);
+            });
+
+        var join = Assert.Single(query.Joins);
+        Assert.Collection(
+            join.OnConditionParts[0].ColumnReferences,
+            first =>
+            {
+                Assert.Equal("u", first.Qualifier);
+                Assert.Equal("Id", first.ColumnName);
+                Assert.Equal(ColumnReferenceResolutionStatus.Resolved, first.ResolutionStatus);
+                Assert.Equal("dbo.Users u", first.ResolvedSourceDisplayText);
+            },
+            second =>
+            {
+                Assert.Equal("o", second.Qualifier);
+                Assert.Equal("UserId", second.ColumnName);
+                Assert.Equal(ColumnReferenceResolutionStatus.Resolved, second.ResolutionStatus);
+                Assert.Equal("dbo.Orders o", second.ResolvedSourceDisplayText);
+            });
+
+        var where = Assert.IsType<ConditionAnalysis>(query.WhereCondition);
+        Assert.Contains(where.ColumnReferences, column =>
+            column.Qualifier == "u"
+            && column.ColumnName == "IsActive"
+            && column.ResolutionStatus == ColumnReferenceResolutionStatus.Resolved
+            && column.ResolvedSourceDisplayText == "dbo.Users u");
+        Assert.Contains(where.ColumnReferences, column =>
+            column.Qualifier == "o"
+            && column.ColumnName == "Amount"
+            && column.ResolutionStatus == ColumnReferenceResolutionStatus.Resolved
+            && column.ResolvedSourceDisplayText == "dbo.Orders o");
+
+        var having = Assert.IsType<ConditionAnalysis>(query.HavingCondition);
+        Assert.Contains(having.ColumnReferences, column =>
+            column.Qualifier == "o"
+            && column.ColumnName == "Amount"
+            && column.ResolutionStatus == ColumnReferenceResolutionStatus.Resolved
+            && column.ResolvedSourceDisplayText == "dbo.Orders o");
+    }
+
+    /// <summary>
+    /// 無修飾列は安全側で未解決のまま保持することを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_UnqualifiedColumnReference_RemainsUnresolved()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               Id
+                           FROM dbo.Users u;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var columnReference = Assert.Single(query.SelectItems[0].ColumnReferences);
+
+        Assert.Null(columnReference.Qualifier);
+        Assert.Equal("Id", columnReference.ColumnName);
+        Assert.Equal(ColumnReferenceResolutionStatus.Unresolved, columnReference.ResolutionStatus);
+        Assert.Null(columnReference.ResolvedSourceDisplayText);
+    }
+
+    /// <summary>
+    /// 派生テーブル別名でも参照先ソースへ解決できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_DerivedTableAlias_ResolvesToDerivedSource()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               d.UserId
+                           FROM (
+                               SELECT
+                                   o.UserId
+                               FROM dbo.Orders o
+                           ) d;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var columnReference = Assert.Single(query.SelectItems[0].ColumnReferences);
+
+        Assert.Equal("d", columnReference.Qualifier);
+        Assert.Equal(ColumnReferenceResolutionStatus.Resolved, columnReference.ResolutionStatus);
+        Assert.Equal("( SELECT o.UserId FROM dbo.Orders o ) d", columnReference.ResolvedSourceDisplayText);
+        Assert.Equal(SourceKind.DerivedTable, columnReference.ResolvedSourceKind);
+    }
+
+    /// <summary>
     /// SELECT INTO で INTO 先を保持できることを確認する。
     /// </summary>
     [Fact]
@@ -206,6 +341,44 @@ public sealed class QueryAnalysisServiceTests
         Assert.NotNull(query.WhereCondition);
         Assert.Contains("u.IsActive = 1", query.WhereCondition!.DisplayText);
         Assert.Contains("u.DeletedAt IS NULL", query.WhereCondition.DisplayText);
+    }
+
+    /// <summary>
+    /// GROUP BY と ORDER BY を項目単位で構造化できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_GroupByAndOrderBy_ReturnDetailedItems()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id,
+                               u.Name
+                           FROM dbo.Users u
+                           GROUP BY
+                               u.Id,
+                               u.Name
+                           ORDER BY
+                               u.Name DESC,
+                               u.Id;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var groupBy = Assert.IsType<GroupByAnalysis>(query.GroupBy);
+        var orderBy = Assert.IsType<OrderByAnalysis>(query.OrderBy);
+
+        Assert.Equal(2, groupBy.GroupingItems.Count);
+        Assert.Equal("u.Id", groupBy.GroupingItems[0].ExpressionText);
+        Assert.Contains(groupBy.GroupingItems[0].ColumnReferences, column => column.Qualifier == "u" && column.ColumnName == "Id");
+        Assert.Equal("u.Name", groupBy.GroupingItems[1].ExpressionText);
+
+        Assert.Equal(2, orderBy.OrderItems.Count);
+        Assert.Equal("u.Name", orderBy.OrderItems[0].ExpressionText);
+        Assert.Equal(OrderByDirection.Descending, orderBy.OrderItems[0].Direction);
+        Assert.Contains(orderBy.OrderItems[0].ColumnReferences, column => column.Qualifier == "u" && column.ColumnName == "Name");
+        Assert.Equal("u.Id", orderBy.OrderItems[1].ExpressionText);
+        Assert.Equal(OrderByDirection.Ascending, orderBy.OrderItems[1].Direction);
     }
 
     /// <summary>

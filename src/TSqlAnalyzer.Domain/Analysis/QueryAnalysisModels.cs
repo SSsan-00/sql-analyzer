@@ -78,6 +78,17 @@ public enum SourceKind
 }
 
 /// <summary>
+/// 列参照のソース解決状態。
+/// どのソースを指すか確定したかどうかを区別し、曖昧さも保持する。
+/// </summary>
+public enum ColumnReferenceResolutionStatus
+{
+    Unresolved,
+    Resolved,
+    Ambiguous
+}
+
+/// <summary>
 /// 集合演算の種別。
 /// UNION と UNION ALL を分けて保持し、将来の差異表示に備える。
 /// </summary>
@@ -211,6 +222,17 @@ public enum ConditionLikeKind
     Unknown,
     Like,
     NotLike
+}
+
+/// <summary>
+/// ORDER BY の並び方向。
+/// ASC / DESC を構造化して保持し、表示やエクスポートで使いやすくする。
+/// </summary>
+public enum OrderByDirection
+{
+    Unspecified,
+    Ascending,
+    Descending
 }
 
 /// <summary>
@@ -485,7 +507,10 @@ public sealed record SelectItemAnalysis(
     string? AggregateFunctionName,
     SelectWildcardKind WildcardKind,
     string? WildcardQualifier,
-    TextSpan? SourceSpan = null);
+    TextSpan? SourceSpan = null)
+{
+    public IReadOnlyList<ColumnReferenceAnalysis> ColumnReferences { get; init; } = [];
+}
 
 /// <summary>
 /// FROM 句や JOIN 先として使われるソースを表す。
@@ -496,6 +521,7 @@ public sealed record SourceAnalysis(
     QueryExpressionAnalysis? NestedQuery,
     SourceKind SourceKind,
     string? SourceName,
+    string? Alias = null,
     TextSpan? SourceSpan = null);
 
 /// <summary>
@@ -505,7 +531,10 @@ public sealed record SourceAnalysis(
 public sealed record JoinConditionPartAnalysis(
     int Sequence,
     string DisplayText,
-    TextSpan? SourceSpan = null);
+    TextSpan? SourceSpan = null)
+{
+    public IReadOnlyList<ColumnReferenceAnalysis> ColumnReferences { get; init; } = [];
+}
 
 /// <summary>
 /// JOIN 表示に必要な最小情報。
@@ -528,7 +557,10 @@ public sealed record ConditionAnalysis(
     string DisplayText,
     ConditionNodeAnalysis RootNode,
     IReadOnlyList<ConditionMarker> Markers,
-    TextSpan? SourceSpan = null);
+    TextSpan? SourceSpan = null)
+{
+    public IReadOnlyList<ColumnReferenceAnalysis> ColumnReferences { get; init; } = [];
+}
 
 /// <summary>
 /// 条件式の論理木 1 ノード分。
@@ -545,7 +577,41 @@ public sealed record ConditionNodeAnalysis(
     ConditionLikeKind LikeKind,
     bool IsParenthesized,
     ConditionMarker? Marker,
-    TextSpan? SourceSpan = null);
+    TextSpan? SourceSpan = null)
+{
+    public IReadOnlyList<ColumnReferenceAnalysis> ColumnReferences { get; init; } = [];
+}
+
+/// <summary>
+/// 式の中で参照されている列 1 件分。
+/// 別名や列名を分けて保持し、どのソースのどの列かを追いやすくする。
+/// </summary>
+public sealed record ColumnReferenceAnalysis(
+    int Sequence,
+    string DisplayText,
+    string? Qualifier,
+    string ColumnName,
+    TextSpan? SourceSpan = null)
+{
+    public ColumnReferenceResolutionStatus ResolutionStatus { get; init; } = ColumnReferenceResolutionStatus.Unresolved;
+    public string? ResolvedSourceDisplayText { get; init; }
+    public string? ResolvedSourceName { get; init; }
+    public string? ResolvedSourceAlias { get; init; }
+    public SourceKind? ResolvedSourceKind { get; init; }
+}
+
+/// <summary>
+/// GROUP BY 項目 1 件分。
+/// 項目式と参照列を分けて持たせることで、後から表示粒度を上げやすくする。
+/// </summary>
+public sealed record GroupByItemAnalysis(
+    int Sequence,
+    string DisplayText,
+    string ExpressionText,
+    TextSpan? SourceSpan = null)
+{
+    public IReadOnlyList<ColumnReferenceAnalysis> ColumnReferences { get; init; } = [];
+}
 
 /// <summary>
 /// 条件式の中で検出した注目ポイント。
@@ -564,7 +630,25 @@ public sealed record ConditionMarker(
 public sealed record GroupByAnalysis(
     IReadOnlyList<string> Items,
     string DisplayText,
-    TextSpan? SourceSpan = null);
+    TextSpan? SourceSpan = null)
+{
+    public IReadOnlyList<GroupByItemAnalysis> GroupingItems { get; init; } = [];
+    public IReadOnlyList<ColumnReferenceAnalysis> ColumnReferences { get; init; } = [];
+}
+
+/// <summary>
+/// ORDER BY 項目 1 件分。
+/// 式と並び方向を構造化して保持し、画面で分けて表示できるようにする。
+/// </summary>
+public sealed record OrderByItemAnalysis(
+    int Sequence,
+    string DisplayText,
+    string ExpressionText,
+    OrderByDirection Direction,
+    TextSpan? SourceSpan = null)
+{
+    public IReadOnlyList<ColumnReferenceAnalysis> ColumnReferences { get; init; } = [];
+}
 
 /// <summary>
 /// ORDER BY の情報。
@@ -573,7 +657,11 @@ public sealed record GroupByAnalysis(
 public sealed record OrderByAnalysis(
     IReadOnlyList<string> Items,
     string DisplayText,
-    TextSpan? SourceSpan = null);
+    TextSpan? SourceSpan = null)
+{
+    public IReadOnlyList<OrderByItemAnalysis> OrderItems { get; init; } = [];
+    public IReadOnlyList<ColumnReferenceAnalysis> ColumnReferences { get; init; } = [];
+}
 
 /// <summary>
 /// サブクエリの出現箇所を表す。

@@ -107,6 +107,41 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// SELECT 項目や条件式で参照列ノードが表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForColumnReferenceQuery_ContainsReferenceNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id,
+                               SUM(o.Amount) AS TotalAmount
+                           FROM dbo.Users u
+                           INNER JOIN dbo.Orders o
+                               ON u.Id = o.UserId
+                           WHERE o.Amount > 0
+                           GROUP BY u.Id
+                           HAVING SUM(o.Amount) > 100;
+                           """;
+
+        var analysis = service.Analyze(sql);
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("参照列", flattenedTexts);
+        Assert.Contains("列 #1: u.Id", flattenedTexts);
+        Assert.Contains("列 #1: o.Amount", flattenedTexts);
+        Assert.Contains("列 #2: o.UserId", flattenedTexts);
+        Assert.Contains("解決状態: 解決済み", flattenedTexts);
+        Assert.Contains("参照先: dbo.Users u", flattenedTexts);
+        Assert.Contains("参照先: dbo.Orders o", flattenedTexts);
+        Assert.Contains("参照別名: u", flattenedTexts);
+        Assert.Contains("参照別名: o", flattenedTexts);
+    }
+
+    /// <summary>
     /// SELECT INTO の場合、INTO 先が TreeView に表示されることを確認する。
     /// </summary>
     [Fact]
@@ -155,6 +190,41 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("全列種別: 全列", flattenedTexts);
         Assert.Contains("全列種別: 修飾付き全列", flattenedTexts);
         Assert.Contains("修飾子: u", flattenedTexts);
+    }
+
+    /// <summary>
+    /// GROUP BY と ORDER BY が項目単位で表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForGroupByAndOrderBy_ContainsDetailedItems()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id,
+                               u.Name
+                           FROM dbo.Users u
+                           GROUP BY
+                               u.Id,
+                               u.Name
+                           ORDER BY
+                               u.Name DESC,
+                               u.Id;
+                           """;
+
+        var analysis = service.Analyze(sql);
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("GROUP BY", flattenedTexts);
+        Assert.Contains("項目 #1: u.Id", flattenedTexts);
+        Assert.Contains("項目 #2: u.Name", flattenedTexts);
+        Assert.Contains("並び順", flattenedTexts);
+        Assert.Contains("項目 #1: u.Name", flattenedTexts);
+        Assert.Contains("方向: DESC", flattenedTexts);
+        Assert.Contains("項目 #2: u.Id", flattenedTexts);
+        Assert.Contains("方向: ASC", flattenedTexts);
     }
 
     /// <summary>

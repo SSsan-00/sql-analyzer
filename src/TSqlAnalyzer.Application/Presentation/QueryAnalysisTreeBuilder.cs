@@ -350,6 +350,11 @@ public sealed class QueryAnalysisTreeBuilder
             Node($"別名: {item.Alias ?? "なし"}")
         };
 
+        if (item.ColumnReferences.Count > 0)
+        {
+            children.Add(BuildColumnReferencesNode(item.ColumnReferences));
+        }
+
         if (item.Kind == SelectItemKind.Wildcard)
         {
             children.Add(Node($"全列種別: {BuildSelectWildcardKindText(item.WildcardKind)}"));
@@ -373,6 +378,7 @@ public sealed class QueryAnalysisTreeBuilder
         var children = new List<DisplayTreeNode>
         {
             Node(source.DisplayText),
+            Node($"別名: {source.Alias ?? "なし"}"),
             BuildSourceKindNode(source)
         };
 
@@ -616,7 +622,7 @@ public sealed class QueryAnalysisTreeBuilder
 
         if (query.GroupBy is not null)
         {
-            children.Add(Node("GROUP BY", query.GroupBy.Items.Select(item => Node(item)).ToArray()));
+            children.Add(BuildGroupByNode(query.GroupBy));
         }
 
         if (query.HavingCondition is not null)
@@ -645,11 +651,7 @@ public sealed class QueryAnalysisTreeBuilder
             return Node("並び順", Node("なし"));
         }
 
-        return Node(
-            "並び順",
-            query.OrderBy.Items
-                .Select((item, index) => Node($"項目 #{index + 1}: {item}"))
-                .ToArray());
+        return BuildOrderBySectionNode(query.OrderBy);
     }
 
     /// <summary>
@@ -840,7 +842,13 @@ public sealed class QueryAnalysisTreeBuilder
         return Node(
             "ON条件",
             join.OnConditionParts
-                .Select(part => NodeWithSpan($"条件 #{part.Sequence}: {part.DisplayText}", part.SourceSpan))
+                .Select(part =>
+                {
+                    var children = part.ColumnReferences.Count > 0
+                        ? new[] { BuildColumnReferencesNode(part.ColumnReferences) }
+                        : Array.Empty<DisplayTreeNode>();
+                    return NodeWithSpan($"条件 #{part.Sequence}: {part.DisplayText}", part.SourceSpan, children);
+                })
                 .ToArray());
     }
 
@@ -863,6 +871,11 @@ public sealed class QueryAnalysisTreeBuilder
             var children = new List<DisplayTreeNode>();
 
             children.Add(NodeWithSpan($"式: {node.DisplayText}", node.SourceSpan));
+
+            if (node.ColumnReferences.Count > 0)
+            {
+                children.Add(BuildColumnReferencesNode(node.ColumnReferences));
+            }
 
             if (node.PredicateKind == ConditionPredicateKind.Between)
             {
@@ -963,6 +976,33 @@ public sealed class QueryAnalysisTreeBuilder
     }
 
     /// <summary>
+    /// ORDER BY 方向の表示名を返す。
+    /// 省略時も既定の ASC として画面に出す。
+    /// </summary>
+    private static string BuildOrderByDirectionText(OrderByDirection direction)
+    {
+        return direction switch
+        {
+            OrderByDirection.Descending => "DESC",
+            OrderByDirection.Ascending => "ASC",
+            _ => "未指定"
+        };
+    }
+
+    /// <summary>
+    /// 列参照のソース解決状態を表示文字列へ変換する。
+    /// </summary>
+    private static string BuildColumnReferenceResolutionStatusText(ColumnReferenceResolutionStatus status)
+    {
+        return status switch
+        {
+            ColumnReferenceResolutionStatus.Resolved => "解決済み",
+            ColumnReferenceResolutionStatus.Ambiguous => "曖昧",
+            _ => "未解決"
+        };
+    }
+
+    /// <summary>
     /// LIKE 種別の表示名を返す。
     /// </summary>
     private static string BuildLikeKindText(ConditionLikeKind likeKind)
@@ -1040,6 +1080,93 @@ public sealed class QueryAnalysisTreeBuilder
                 Node($"子集合演算数: {CountNestedSetOperations(setOperationQuery)}")),
             _ => Node(title, Node("クエリ種別: 不明"))
         };
+    }
+
+    /// <summary>
+    /// GROUP BY の詳細ノードを作る。
+    /// 項目単位で式と参照列を辿れるようにする。
+    /// </summary>
+    private static DisplayTreeNode BuildGroupByNode(GroupByAnalysis groupBy)
+    {
+        if (groupBy.GroupingItems.Count == 0)
+        {
+            return Node("GROUP BY", groupBy.Items.Select(item => Node(item)).ToArray());
+        }
+
+        return Node(
+            "GROUP BY",
+            groupBy.GroupingItems
+                .Select(groupingItem =>
+                {
+                    var children = new List<DisplayTreeNode>
+                    {
+                        NodeWithSpan($"式: {groupingItem.ExpressionText}", groupingItem.SourceSpan)
+                    };
+
+                    if (groupingItem.ColumnReferences.Count > 0)
+                    {
+                        children.Add(BuildColumnReferencesNode(groupingItem.ColumnReferences));
+                    }
+
+                    return NodeWithSpan($"項目 #{groupingItem.Sequence}: {groupingItem.DisplayText}", groupingItem.SourceSpan, children.ToArray());
+                })
+                .ToArray());
+    }
+
+    /// <summary>
+    /// ORDER BY の詳細ノードを作る。
+    /// 項目ごとの式、方向、参照列を分けて表示する。
+    /// </summary>
+    private static DisplayTreeNode BuildOrderBySectionNode(OrderByAnalysis orderBy)
+    {
+        if (orderBy.OrderItems.Count == 0)
+        {
+            return Node(
+                "並び順",
+                orderBy.Items
+                    .Select((item, index) => Node($"項目 #{index + 1}: {item}"))
+                    .ToArray());
+        }
+
+        return Node(
+            "並び順",
+            orderBy.OrderItems
+                .Select(orderItem =>
+                {
+                    var children = new List<DisplayTreeNode>
+                    {
+                        NodeWithSpan($"式: {orderItem.ExpressionText}", orderItem.SourceSpan),
+                        Node($"方向: {BuildOrderByDirectionText(orderItem.Direction)}")
+                    };
+
+                    if (orderItem.ColumnReferences.Count > 0)
+                    {
+                        children.Add(BuildColumnReferencesNode(orderItem.ColumnReferences));
+                    }
+
+                    return NodeWithSpan($"項目 #{orderItem.Sequence}: {orderItem.ExpressionText}", orderItem.SourceSpan, children.ToArray());
+                })
+                .ToArray());
+    }
+
+    /// <summary>
+    /// 列参照一覧ノードを作る。
+    /// 各式がどの別名・列を参照しているかをまとめて確認できるようにする。
+    /// </summary>
+    private static DisplayTreeNode BuildColumnReferencesNode(IReadOnlyList<ColumnReferenceAnalysis> columnReferences)
+    {
+        return Node(
+            "参照列",
+            columnReferences
+                .Select(columnReference => NodeWithSpan(
+                    $"列 #{columnReference.Sequence}: {columnReference.DisplayText}",
+                    columnReference.SourceSpan,
+                    Node($"修飾子: {columnReference.Qualifier ?? "なし"}"),
+                    Node($"列名: {columnReference.ColumnName}"),
+                    Node($"解決状態: {BuildColumnReferenceResolutionStatusText(columnReference.ResolutionStatus)}"),
+                    Node($"参照先: {columnReference.ResolvedSourceDisplayText ?? "なし"}"),
+                    Node($"参照別名: {columnReference.ResolvedSourceAlias ?? "なし"}")))
+                .ToArray());
     }
 
     /// <summary>
