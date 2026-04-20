@@ -24,7 +24,7 @@
 
 - Windows 11 または Windows 10
 - PowerShell
-- .NET SDK 10 系
+- .NET SDK 9 系
 - NuGet へアクセスできるネットワーク
 
 ## 最短手順
@@ -89,7 +89,7 @@ dotnet publish .\src\TSqlAnalyzer.WinForms\TSqlAnalyzer.WinForms.csproj `
 ### 7. 生成された exe を起動する
 
 ```powershell
-.\src\TSqlAnalyzer.WinForms\bin\Release\net10.0-windows\win-x64\publish\TSqlAnalyzer.WinForms.exe
+.\src\TSqlAnalyzer.WinForms\bin\Release\net9.0-windows\win-x64\publish\TSqlAnalyzer.WinForms.exe
 ```
 
 ## フォルダ構成の見え方
@@ -128,7 +128,7 @@ C:\work\tsql-analyzer-bootstrap\extracted\TSqlAnalyzer
     TSqlAnalyzer.WinForms
       bin
         Release
-          net10.0-windows
+          net9.0-windows
             win-x64
               publish
                 TSqlAnalyzer.WinForms.exe
@@ -177,9 +177,9 @@ dotnet build .\TSqlAnalyzer.Runtime.slnx -c Release
 
 主な出力先:
 
-- `.\src\TSqlAnalyzer.Domain\bin\Release\net10.0\`
-- `.\src\TSqlAnalyzer.Application\bin\Release\net10.0\`
-- `.\src\TSqlAnalyzer.WinForms\bin\Release\net10.0-windows\`
+- `.\src\TSqlAnalyzer.Domain\bin\Release\net9.0\`
+- `.\src\TSqlAnalyzer.Application\bin\Release\net9.0\`
+- `.\src\TSqlAnalyzer.WinForms\bin\Release\net9.0-windows\`
 
 ### publish
 
@@ -193,7 +193,7 @@ dotnet publish .\src\TSqlAnalyzer.WinForms\TSqlAnalyzer.WinForms.csproj `
 
 出力先:
 
-- `.\src\TSqlAnalyzer.WinForms\bin\Release\net10.0-windows\win-x64\publish\`
+- `.\src\TSqlAnalyzer.WinForms\bin\Release\net9.0-windows\win-x64\publish\`
 
 主な生成物:
 
@@ -256,18 +256,20 @@ WHERE EXISTS (
 - `共通テーブル式` 配下に `参照関係` が表示される
 - `共通テーブル式` 配下に `依存順` が表示される
 - `結合` 配下に `JOIN #1` が表示される
+- `結合` 配下の `ON条件` が `条件 #1` `条件 #2` のように分割表示される
 - `結合先の内部構造` が表示される
-- `取得項目` 配下に `別名` と `集計関数` が表示される
+- `取得項目` 配下に `別名` が表示される
 - `取得項目` 配下にワイルドカード項目の `全列種別` と `修飾子` が表示される
 - `集合演算` 配下に `概要` `左概要` `右概要` が表示される
 - `集合演算` 配下に `子集合演算数` が表示される
 - `抽出条件` 配下に `条件論理` が表示される
-- `条件論理` 配下に括弧グループがある場合 `括弧: あり` が表示される
-- `条件論理` 配下に `述語種別: EXISTS` や `述語種別: 比較` などが表示される
-- `条件論理` 配下に `比較種別: 等価 (=)` や `比較種別: 以上 (>=)` などが表示される
-- `条件論理` 配下に `NULL判定種別: IS NOT NULL` や `範囲種別: NOT BETWEEN` が表示される
+- `条件論理` 配下に `EXISTS` `NOT EXISTS` `IN` `NOT IN` が表示される
+- `条件論理` 配下に `範囲種別: NOT BETWEEN` や `LIKE種別: NOT LIKE` が表示される
 - `条件論理` 配下に `LIKE種別: NOT LIKE` が表示される
-- `抽出条件` 配下に `条件種別` と `内部クエリ` が表示される
+- `入力元` 配下に `列と値の対応` が表示される
+- SQL 入力欄で `Ctrl+F` による検索ができる
+- SQL 入力欄と解析結果ツリーの選択が相互に連動する
+- 右下の `全文表示` で選択ノードの SQL 全文を確認できる
 
 ## つまずきやすい点
 
@@ -277,7 +279,7 @@ WHERE EXISTS (
 
 ### `dotnet` が見つからない
 
-.NET SDK 10 系が入っていないか、PATH が通っていない。`dotnet --info` で確認する。
+.NET SDK 9 系が入っていないか、PATH が通っていない。`dotnet --info` で確認する。
 
 ### NuGet 復元で失敗する
 
@@ -288,7 +290,7 @@ WHERE EXISTS (
 `publish` が成功していれば、既定では次に生成される。
 
 ```text
-.\src\TSqlAnalyzer.WinForms\bin\Release\net10.0-windows\win-x64\publish\TSqlAnalyzer.WinForms.exe
+.\src\TSqlAnalyzer.WinForms\bin\Release\net9.0-windows\win-x64\publish\TSqlAnalyzer.WinForms.exe
 ```
 
 ### bootstrap は通ったが WinForms が起動しない

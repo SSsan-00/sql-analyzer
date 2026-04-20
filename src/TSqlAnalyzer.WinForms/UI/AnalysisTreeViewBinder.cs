@@ -28,11 +28,40 @@ internal static class AnalysisTreeViewBinder
     }
 
     /// <summary>
+    /// TreeNode に紐付いた表示ノードを返す。
+    /// </summary>
+    public static DisplayTreeNode? GetDisplayNode(TreeNode? treeNode)
+    {
+        return treeNode?.Tag as DisplayTreeNode;
+    }
+
+    /// <summary>
+    /// 指定した表示ノードに対応する TreeNode を探す。
+    /// </summary>
+    public static TreeNode? FindTreeNode(TreeView treeView, DisplayTreeNode targetNode)
+    {
+        foreach (TreeNode treeNode in treeView.Nodes)
+        {
+            var match = FindTreeNode(treeNode, targetNode);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// DisplayTreeNode を再帰的に TreeNode へ変換する。
     /// </summary>
     private static TreeNode CreateNode(DisplayTreeNode source)
     {
-        var node = new TreeNode(source.Text);
+        var node = new TreeNode(source.Text)
+        {
+            Tag = source,
+            ToolTipText = source.Text
+        };
 
         foreach (var child in source.Children)
         {
@@ -40,5 +69,24 @@ internal static class AnalysisTreeViewBinder
         }
 
         return node;
+    }
+
+    private static TreeNode? FindTreeNode(TreeNode currentNode, DisplayTreeNode targetNode)
+    {
+        if (ReferenceEquals(currentNode.Tag, targetNode))
+        {
+            return currentNode;
+        }
+
+        foreach (TreeNode childNode in currentNode.Nodes)
+        {
+            var match = FindTreeNode(childNode, targetNode);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
     }
 }

@@ -61,6 +61,32 @@ internal static class CommonTableExpressionDependencyAnalyzer
     }
 
     /// <summary>
+    /// 指定 CREATE 文以下で参照されている CTE 名を重複なく返す。
+    /// CREATE VIEW や CTAS の内部クエリから参照名を拾うために使う。
+    /// </summary>
+    public static IReadOnlyList<string> GetReferencedNames(
+        CreateStatementAnalysis? createStatement,
+        ISet<string>? knownNames = null)
+    {
+        if (createStatement is null)
+        {
+            return [];
+        }
+
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectReferencedNames(createStatement, names);
+
+        if (knownNames is not null)
+        {
+            names.RemoveWhere(name => !knownNames.Contains(name));
+        }
+
+        return names
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <summary>
     /// CTE 一覧から依存順と循環対象を計算する。
     /// 依存順は Kahn 法で求め、取り切れなかった名前を循環として返す。
     /// </summary>
@@ -193,6 +219,24 @@ internal static class CommonTableExpressionDependencyAnalyzer
         foreach (var subquery in dataModification.Subqueries)
         {
             CollectReferencedNames(subquery.Query, names);
+        }
+    }
+
+    /// <summary>
+    /// CREATE 文以下から参照されている CTE 名を蓄積する。
+    /// 初期版では内部クエリを持つ VIEW と CTAS を対象にする。
+    /// </summary>
+    private static void CollectReferencedNames(CreateStatementAnalysis createStatement, ISet<string> names)
+    {
+        switch (createStatement)
+        {
+            case CreateViewAnalysis createView:
+                CollectReferencedNames(createView.Query, names);
+                break;
+
+            case CreateTableAnalysis createTable when createTable.Query is not null:
+                CollectReferencedNames(createTable.Query, names);
+                break;
         }
     }
 

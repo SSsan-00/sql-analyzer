@@ -20,7 +20,7 @@ public sealed class QueryAnalysisTreeBuilder
             BuildOverviewNode(result),
         };
 
-        if (result.Query is not null || result.DataModification is not null)
+        if (result.Query is not null || result.DataModification is not null || result.CreateStatement is not null)
         {
             children.Add(BuildCommonTableExpressionsNode(result));
             children.Add(BuildMainStructureNode(result));
@@ -35,8 +35,6 @@ public sealed class QueryAnalysisTreeBuilder
             children.Add(Node("サブクエリ", Node("なし")));
         }
 
-        children.Add(BuildNoticeNode(result));
-
         return new DisplayTreeNode("クエリ解析結果", children);
     }
 
@@ -50,6 +48,7 @@ public sealed class QueryAnalysisTreeBuilder
             QueryStatementCategory.Empty => "未入力",
             QueryStatementCategory.Select => "SELECT",
             QueryStatementCategory.SetOperation => "集合演算",
+            QueryStatementCategory.Create => "CREATE",
             QueryStatementCategory.Update => "UPDATE",
             QueryStatementCategory.Insert => "INSERT",
             QueryStatementCategory.Delete => "DELETE",
@@ -73,6 +72,7 @@ public sealed class QueryAnalysisTreeBuilder
         {
             children.Add(Node(selectQuery.IsDistinct ? "DISTINCT: あり" : "DISTINCT: なし"));
             children.Add(Node($"TOP: {selectQuery.TopExpressionText ?? "なし"}"));
+            children.Add(Node($"INTO: {selectQuery.IntoTarget?.DisplayText ?? "なし"}"));
             children.Add(Node($"取得項目数: {selectQuery.SelectItems.Count}"));
             children.Add(Node($"JOIN数: {selectQuery.Joins.Count}"));
             children.Add(Node($"サブクエリ数: {selectQuery.Subqueries.Count}"));
@@ -102,6 +102,19 @@ public sealed class QueryAnalysisTreeBuilder
             children.Add(Node($"TOP: {deleteStatement.TopExpressionText ?? "なし"}"));
             children.Add(Node($"JOIN数: {deleteStatement.Joins.Count}"));
             children.Add(Node($"サブクエリ数: {deleteStatement.Subqueries.Count}"));
+        }
+        else if (result.CreateStatement is CreateViewAnalysis createView)
+        {
+            children.Add(Node("作成種別: VIEW"));
+            children.Add(Node($"名前: {createView.Name}"));
+            children.Add(Node($"列数: {createView.ColumnNames.Count}"));
+        }
+        else if (result.CreateStatement is CreateTableAnalysis createTable)
+        {
+            children.Add(Node("作成種別: TABLE"));
+            children.Add(Node($"名前: {createTable.Name}"));
+            children.Add(Node($"列数: {createTable.Columns.Count}"));
+            children.Add(Node($"内部クエリ: {(createTable.Query is null ? "なし" : "あり")}"));
         }
         else
         {
@@ -143,6 +156,11 @@ public sealed class QueryAnalysisTreeBuilder
             return BuildQueryNode("主構造", result.Query);
         }
 
+        if (result.CreateStatement is not null)
+        {
+            return BuildCreateStatementNode(result.CreateStatement);
+        }
+
         return result.DataModification is not null
             ? BuildDataModificationNode(result.DataModification)
             : Node("主構造", Node("解析対象なし"));
@@ -177,6 +195,20 @@ public sealed class QueryAnalysisTreeBuilder
     }
 
     /// <summary>
+    /// CREATE 文の主構造ノードを作る。
+    /// VIEW と TABLE を分けて表示しつつ、内部クエリは既存の SELECT 表示を再利用する。
+    /// </summary>
+    private static DisplayTreeNode BuildCreateStatementNode(CreateStatementAnalysis createStatement)
+    {
+        return createStatement switch
+        {
+            CreateViewAnalysis createView => BuildCreateViewNode(createView),
+            CreateTableAnalysis createTable => BuildCreateTableNode(createTable),
+            _ => Node("主構造", Node("未対応の CREATE 構造です。"))
+        };
+    }
+
+    /// <summary>
     /// SELECT 文の主構造ノードを組み立てる。
     /// </summary>
     private static DisplayTreeNode BuildSelectNode(string title, SelectQueryAnalysis query)
@@ -184,6 +216,7 @@ public sealed class QueryAnalysisTreeBuilder
         var children = new List<DisplayTreeNode>
         {
             BuildSelectItemsNode(query),
+            BuildSelectIntoNode(query),
             BuildMainSourceNode(query),
             BuildJoinNode(query),
             BuildWhereNode(query),
@@ -191,7 +224,46 @@ public sealed class QueryAnalysisTreeBuilder
             BuildOrderByNode(query)
         };
 
-        return Node(title, children.ToArray());
+        return NodeWithSpan(title, query.SourceSpan, children.ToArray());
+    }
+
+    /// <summary>
+    /// CREATE VIEW 文の主構造ノードを作る。
+    /// </summary>
+    private static DisplayTreeNode BuildCreateViewNode(CreateViewAnalysis createView)
+    {
+        return NodeWithSpan(
+            "主構造",
+            createView.SourceSpan,
+            Node(
+                "作成対象",
+                Node("種別: VIEW"),
+                Node($"名前: {createView.Name}")),
+            BuildCreateViewColumnsNode(createView),
+            Node($"WITH CHECK OPTION: {(createView.WithCheckOption ? "あり" : "なし")}"),
+            BuildQueryNode("内部クエリ", createView.Query));
+    }
+
+    /// <summary>
+    /// CREATE TABLE 文の主構造ノードを作る。
+    /// </summary>
+    private static DisplayTreeNode BuildCreateTableNode(CreateTableAnalysis createTable)
+    {
+        var children = new List<DisplayTreeNode>
+        {
+            Node(
+                "作成対象",
+                Node("種別: TABLE"),
+                Node($"名前: {createTable.Name}")),
+            BuildCreateTableColumnsNode(createTable)
+        };
+
+        if (createTable.Query is not null)
+        {
+            children.Add(BuildQueryNode("内部クエリ", createTable.Query));
+        }
+
+        return NodeWithSpan("主構造", createTable.SourceSpan, children.ToArray());
     }
 
     /// <summary>
@@ -199,8 +271,9 @@ public sealed class QueryAnalysisTreeBuilder
     /// </summary>
     private static DisplayTreeNode BuildUpdateNode(UpdateStatementAnalysis updateStatement)
     {
-        return Node(
+        return NodeWithSpan(
             "主構造",
+            updateStatement.SourceSpan,
             BuildSourceSectionNode("更新対象", updateStatement.Target),
             BuildUpdateSetClausesNode(updateStatement),
             BuildSourceSectionNode("参照ソース", updateStatement.MainSource, "なし"),
@@ -214,8 +287,9 @@ public sealed class QueryAnalysisTreeBuilder
     /// </summary>
     private static DisplayTreeNode BuildInsertNode(InsertStatementAnalysis insertStatement)
     {
-        return Node(
+        return NodeWithSpan(
             "主構造",
+            insertStatement.SourceSpan,
             BuildSourceSectionNode("挿入対象", insertStatement.Target),
             BuildInsertColumnsNode(insertStatement),
             BuildInsertSourceNode(insertStatement),
@@ -227,8 +301,9 @@ public sealed class QueryAnalysisTreeBuilder
     /// </summary>
     private static DisplayTreeNode BuildDeleteNode(DeleteStatementAnalysis deleteStatement)
     {
-        return Node(
+        return NodeWithSpan(
             "主構造",
+            deleteStatement.SourceSpan,
             BuildSourceSectionNode("削除対象", deleteStatement.Target),
             BuildSourceSectionNode("参照ソース", deleteStatement.MainSource, "なし"),
             BuildJoinNode(deleteStatement.Joins),
@@ -254,6 +329,15 @@ public sealed class QueryAnalysisTreeBuilder
     }
 
     /// <summary>
+    /// SELECT INTO の出力先ノードを作る。
+    /// INTO がない通常 SELECT では「なし」を表示する。
+    /// </summary>
+    private static DisplayTreeNode BuildSelectIntoNode(SelectQueryAnalysis query)
+    {
+        return BuildSourceSectionNode("出力先", query.IntoTarget, "なし");
+    }
+
+    /// <summary>
     /// SELECT 項目 1 件分のノードを作る。
     /// ワイルドカード項目では全列種別と修飾子も表示する。
     /// </summary>
@@ -261,10 +345,9 @@ public sealed class QueryAnalysisTreeBuilder
     {
         var children = new List<DisplayTreeNode>
         {
-            Node($"種別: {BuildSelectItemKindText(item.Kind)}"),
-            Node($"式: {item.ExpressionText}"),
-            Node($"別名: {item.Alias ?? "なし"}"),
-            Node($"集計関数: {item.AggregateFunctionName ?? "なし"}")
+            NodeWithSpan($"種別: {BuildSelectItemKindText(item.Kind)}", item.SourceSpan),
+            NodeWithSpan($"式: {item.ExpressionText}", item.SourceSpan),
+            Node($"別名: {item.Alias ?? "なし"}")
         };
 
         if (item.Kind == SelectItemKind.Wildcard)
@@ -273,7 +356,7 @@ public sealed class QueryAnalysisTreeBuilder
             children.Add(Node($"修飾子: {item.WildcardQualifier ?? "なし"}"));
         }
 
-        return Node($"項目 #{item.Sequence}: {item.DisplayText}", children.ToArray());
+        return NodeWithSpan($"項目 #{item.Sequence}: {item.DisplayText}", item.SourceSpan, children.ToArray());
     }
 
     /// <summary>
@@ -298,7 +381,7 @@ public sealed class QueryAnalysisTreeBuilder
             children.Add(BuildQueryNode($"{title}の内部構造", source.NestedQuery));
         }
 
-        return Node(title, children.ToArray());
+        return NodeWithSpan(title, source.SourceSpan, children.ToArray());
     }
 
     /// <summary>
@@ -314,9 +397,8 @@ public sealed class QueryAnalysisTreeBuilder
 
         return Node(
             title,
-            Node($"条件式: {condition.DisplayText}"),
-            BuildConditionLogicNode(condition),
-            BuildConditionMarkersNode(condition));
+            NodeWithSpan($"条件式: {condition.DisplayText}", condition.SourceSpan),
+            BuildConditionLogicNode(condition));
     }
 
     /// <summary>
@@ -334,7 +416,7 @@ public sealed class QueryAnalysisTreeBuilder
             updateStatement.SetClauses
                 .Select(setClause => Node(
                     $"SET #{setClause.Sequence}",
-                    Node($"式: {setClause.DisplayText}"),
+                    NodeWithSpan($"式: {setClause.DisplayText}", setClause.SourceSpan),
                     Node($"列: {setClause.TargetText}"),
                     Node($"値: {setClause.ValueText}")))
                 .ToArray());
@@ -383,6 +465,11 @@ public sealed class QueryAnalysisTreeBuilder
                     .ToArray()));
         }
 
+        if (insertStatement.InsertSource.MappingGroups.Count > 0)
+        {
+            children.Add(BuildInsertValueMappingsNode(insertStatement.InsertSource));
+        }
+
         if (insertStatement.InsertSource.Query is not null)
         {
             children.Add(BuildQueryNode("内部クエリ", insertStatement.InsertSource.Query));
@@ -393,7 +480,65 @@ public sealed class QueryAnalysisTreeBuilder
             children.Add(Node($"実行文: {insertStatement.InsertSource.ExecuteText}"));
         }
 
-        return Node("入力元", children.ToArray());
+        return NodeWithSpan("入力元", insertStatement.InsertSource.SourceSpan, children.ToArray());
+    }
+
+    /// <summary>
+    /// CREATE VIEW の列一覧ノードを作る。
+    /// </summary>
+    private static DisplayTreeNode BuildCreateViewColumnsNode(CreateViewAnalysis createView)
+    {
+        if (createView.ColumnNames.Count == 0)
+        {
+            return Node("列定義", Node("省略"));
+        }
+
+        return Node(
+            "列定義",
+            createView.ColumnNames
+                .Select((column, index) => Node($"列 #{index + 1}: {column}"))
+                .ToArray());
+    }
+
+    /// <summary>
+    /// CREATE TABLE の列一覧ノードを作る。
+    /// </summary>
+    private static DisplayTreeNode BuildCreateTableColumnsNode(CreateTableAnalysis createTable)
+    {
+        if (createTable.Columns.Count == 0)
+        {
+            return Node("列定義", Node("なし"));
+        }
+
+        return Node(
+            "列定義",
+            createTable.Columns
+                .Select(column => Node(
+                    $"列 #{column.Sequence}: {column.Name}",
+                    NodeWithSpan($"式: {column.DisplayText}", column.SourceSpan),
+                    Node($"データ型: {column.DataType}"),
+                    Node($"NULL許可: {(column.IsNullable ? "あり" : "なし")}")))
+                .ToArray());
+    }
+
+    /// <summary>
+    /// INSERT の列と値の対応ノードを作る。
+    /// 列ごとの値を 1 行で並べ、VALUES の複数行や SELECT 列対応を追いやすくする。
+    /// </summary>
+    private static DisplayTreeNode BuildInsertValueMappingsNode(InsertSourceAnalysis insertSource)
+    {
+        return Node(
+            "列と値の対応",
+            insertSource.MappingGroups
+                .Select(group => NodeWithSpan(
+                    group.Title,
+                    group.SourceSpan,
+                    group.Mappings
+                        .Select(mapping => NodeWithSpan(
+                            $"対応 #{mapping.Sequence}: {mapping.TargetColumn} <= {mapping.ValueText}",
+                            mapping.SourceSpan))
+                        .ToArray()))
+                .ToArray());
     }
 
     /// <summary>
@@ -478,9 +623,8 @@ public sealed class QueryAnalysisTreeBuilder
         {
             children.Add(Node(
                 "HAVING",
-                Node($"条件式: {query.HavingCondition.DisplayText}"),
-                BuildConditionLogicNode(query.HavingCondition),
-                BuildConditionMarkersNode(query.HavingCondition)));
+                NodeWithSpan($"条件式: {query.HavingCondition.DisplayText}", query.HavingCondition.SourceSpan),
+                BuildConditionLogicNode(query.HavingCondition)));
         }
 
         if (children.Count == 0)
@@ -536,6 +680,16 @@ public sealed class QueryAnalysisTreeBuilder
             return BuildSubqueryListNode(result.DataModification.Subqueries);
         }
 
+        if (result.CreateStatement is CreateViewAnalysis createView)
+        {
+            return BuildSubqueryListNode(GetSubqueries(createView.Query));
+        }
+
+        if (result.CreateStatement is CreateTableAnalysis createTable && createTable.Query is not null)
+        {
+            return BuildSubqueryListNode(GetSubqueries(createTable.Query));
+        }
+
         return Node("サブクエリ", Node("なし"));
     }
 
@@ -553,10 +707,11 @@ public sealed class QueryAnalysisTreeBuilder
         return Node(
             "サブクエリ",
             subqueries
-                .Select((subquery, index) => Node(
+                .Select((subquery, index) => NodeWithSpan(
                     $"サブクエリ #{index + 1}",
+                    subquery.SourceSpan,
                     Node($"場所: {subquery.Location}"),
-                    Node($"概要: {subquery.DisplayText}"),
+                    NodeWithSpan($"概要: {subquery.DisplayText}", subquery.SourceSpan),
                     BuildQueryNode("内部構造", subquery.Query)))
                 .ToArray());
     }
@@ -660,7 +815,7 @@ public sealed class QueryAnalysisTreeBuilder
             Node($"種別: {join.JoinTypeText}"),
             Node($"結合先: {join.TargetSource.DisplayText}"),
             BuildSourceKindNode(join.TargetSource),
-            Node($"ON条件: {join.OnConditionText ?? "なし"}")
+            BuildJoinOnConditionNode(join)
         };
 
         if (join.TargetSource.NestedQuery is not null)
@@ -668,23 +823,24 @@ public sealed class QueryAnalysisTreeBuilder
             children.Add(BuildNestedSourceNode("結合先の内部構造", join.TargetSource));
         }
 
-        return Node($"JOIN #{join.Sequence}", children.ToArray());
+        return NodeWithSpan($"JOIN #{join.Sequence}", join.SourceSpan, children.ToArray());
     }
 
     /// <summary>
-    /// 条件マーカー一覧ノードを作る。
+    /// JOIN の ON 条件を見やすい一覧へ変換する。
+    /// 1 件でも一覧形式に揃え、複数条件時の見通しを安定させる。
     /// </summary>
-    private static DisplayTreeNode BuildConditionMarkersNode(ConditionAnalysis condition)
+    private static DisplayTreeNode BuildJoinOnConditionNode(JoinAnalysis join)
     {
-        if (condition.Markers.Count == 0)
+        if (join.OnConditionParts.Count == 0)
         {
-            return Node("条件種別", Node("特記事項なし"));
+            return Node("ON条件", Node("なし"));
         }
 
         return Node(
-            "条件種別",
-            condition.Markers
-                .Select((marker, index) => BuildConditionMarkerNode(marker, index + 1))
+            "ON条件",
+            join.OnConditionParts
+                .Select(part => NodeWithSpan($"条件 #{part.Sequence}: {part.DisplayText}", part.SourceSpan))
                 .ToArray());
     }
 
@@ -694,7 +850,7 @@ public sealed class QueryAnalysisTreeBuilder
     /// </summary>
     private static DisplayTreeNode BuildConditionLogicNode(ConditionAnalysis condition)
     {
-        return Node("条件論理", BuildConditionLogicTreeNode(condition.RootNode));
+        return NodeWithSpan("条件論理", condition.SourceSpan, BuildConditionLogicTreeNode(condition.RootNode));
     }
 
     /// <summary>
@@ -706,19 +862,7 @@ public sealed class QueryAnalysisTreeBuilder
         {
             var children = new List<DisplayTreeNode>();
 
-            AppendParenthesisNode(children, node);
-            children.Add(Node($"式: {node.DisplayText}"));
-            children.Add(Node($"述語種別: {BuildPredicateKindText(node.PredicateKind)}"));
-
-            if (node.PredicateKind == ConditionPredicateKind.Comparison)
-            {
-                children.Add(Node($"比較種別: {BuildComparisonKindText(node.ComparisonKind)}"));
-            }
-
-            if (node.PredicateKind == ConditionPredicateKind.NullCheck)
-            {
-                children.Add(Node($"NULL判定種別: {BuildNullCheckKindText(node.NullCheckKind)}"));
-            }
+            children.Add(NodeWithSpan($"式: {node.DisplayText}", node.SourceSpan));
 
             if (node.PredicateKind == ConditionPredicateKind.Between)
             {
@@ -730,46 +874,21 @@ public sealed class QueryAnalysisTreeBuilder
                 children.Add(Node($"LIKE種別: {BuildLikeKindText(node.LikeKind)}"));
             }
 
-            if (node.Marker is not null)
+            if (node.Marker?.NestedQuery is not null)
             {
-                children.Add(Node($"種別: {BuildMarkerText(node.Marker.MarkerType)}"));
-
-                if (node.Marker.NestedQuery is not null)
-                {
-                    children.Add(BuildQueryNode("内部クエリ", node.Marker.NestedQuery));
-                }
+                children.Add(BuildQueryNode("内部クエリ", node.Marker.NestedQuery));
             }
 
-            return Node(BuildConditionNodeTitle(node), children.ToArray());
+            return NodeWithSpan(BuildConditionNodeTitle(node), node.SourceSpan, children.ToArray());
         }
 
         var logicalChildren = new List<DisplayTreeNode>();
-        AppendParenthesisNode(logicalChildren, node);
         logicalChildren.AddRange(node.Children.Select(BuildConditionLogicTreeNode));
 
-        return Node(
+        return NodeWithSpan(
             BuildConditionNodeTitle(node),
+            node.SourceSpan,
             logicalChildren.ToArray());
-    }
-
-    /// <summary>
-    /// 条件マーカー 1 件分のノードを作る。
-    /// EXISTS / IN の内部クエリがある場合は、その構造も辿れるようにする。
-    /// </summary>
-    private static DisplayTreeNode BuildConditionMarkerNode(ConditionMarker marker, int sequence)
-    {
-        var children = new List<DisplayTreeNode>
-        {
-            Node($"種別: {BuildMarkerText(marker.MarkerType)}"),
-            Node($"条件式: {marker.DisplayText}")
-        };
-
-        if (marker.NestedQuery is not null)
-        {
-            children.Add(BuildQueryNode("内部クエリ", marker.NestedQuery));
-        }
-
-        return Node($"条件 #{sequence}", children.ToArray());
     }
 
     /// <summary>
@@ -787,67 +906,6 @@ public sealed class QueryAnalysisTreeBuilder
         };
     }
 
-    /// <summary>
-    /// 条件ノードが括弧で囲まれていたかを表示する。
-    /// </summary>
-    private static void AppendParenthesisNode(ICollection<DisplayTreeNode> children, ConditionNodeAnalysis node)
-    {
-        if (node.IsParenthesized)
-        {
-            children.Add(Node("括弧: あり"));
-        }
-    }
-
-    /// <summary>
-    /// 述語種別の表示名を返す。
-    /// </summary>
-    private static string BuildPredicateKindText(ConditionPredicateKind predicateKind)
-    {
-        return predicateKind switch
-        {
-            ConditionPredicateKind.Comparison => "比較",
-            ConditionPredicateKind.NullCheck => "NULL判定",
-            ConditionPredicateKind.Like => "LIKE",
-            ConditionPredicateKind.Between => "BETWEEN",
-            ConditionPredicateKind.Exists => "EXISTS",
-            ConditionPredicateKind.In => "IN",
-            _ => "不明"
-        };
-    }
-
-    /// <summary>
-    /// 比較演算子種別の表示名を返す。
-    /// </summary>
-    private static string BuildComparisonKindText(ConditionComparisonKind comparisonKind)
-    {
-        return comparisonKind switch
-        {
-            ConditionComparisonKind.Equal => "等価 (=)",
-            ConditionComparisonKind.NotEqual => "不等価 (<>)",
-            ConditionComparisonKind.GreaterThan => "より大きい (>)",
-            ConditionComparisonKind.LessThan => "より小さい (<)",
-            ConditionComparisonKind.GreaterThanOrEqual => "以上 (>=)",
-            ConditionComparisonKind.LessThanOrEqual => "以下 (<=)",
-            ConditionComparisonKind.NotLessThan => "未満ではない (!<)",
-            ConditionComparisonKind.NotGreaterThan => "超過ではない (!>)",
-            ConditionComparisonKind.IsDistinctFrom => "IS DISTINCT FROM",
-            ConditionComparisonKind.IsNotDistinctFrom => "IS NOT DISTINCT FROM",
-            _ => "不明"
-        };
-    }
-
-    /// <summary>
-    /// NULL 判定種別の表示名を返す。
-    /// </summary>
-    private static string BuildNullCheckKindText(ConditionNullCheckKind nullCheckKind)
-    {
-        return nullCheckKind switch
-        {
-            ConditionNullCheckKind.IsNull => "IS NULL",
-            ConditionNullCheckKind.IsNotNull => "IS NOT NULL",
-            _ => "不明"
-        };
-    }
 
     /// <summary>
     /// BETWEEN 種別の表示名を返す。
@@ -924,7 +982,9 @@ public sealed class QueryAnalysisTreeBuilder
     {
         var names = result.Query is not null
             ? CommonTableExpressionDependencyAnalyzer.GetReferencedNames(result.Query)
-            : CommonTableExpressionDependencyAnalyzer.GetReferencedNames(result.DataModification);
+            : result.DataModification is not null
+                ? CommonTableExpressionDependencyAnalyzer.GetReferencedNames(result.DataModification)
+                : CommonTableExpressionDependencyAnalyzer.GetReferencedNames(result.CreateStatement);
         return names.Count == 0 ? "なし" : string.Join(", ", names);
     }
 
@@ -943,8 +1003,9 @@ public sealed class QueryAnalysisTreeBuilder
     /// </summary>
     private static DisplayTreeNode BuildSetOperationStructureNode(string title, SetOperationQueryAnalysis setOperationQuery)
     {
-        return Node(
+        return NodeWithSpan(
             title,
+            setOperationQuery.SourceSpan,
             Node($"種別: {BuildSetOperationText(setOperationQuery.OperationType)}"),
             Node(
                 "概要",
@@ -967,6 +1028,7 @@ public sealed class QueryAnalysisTreeBuilder
                 title,
                 Node("クエリ種別: SELECT"),
                 Node(selectQuery.IsDistinct ? "DISTINCT: あり" : "DISTINCT: なし"),
+                Node($"INTO: {selectQuery.IntoTarget?.DisplayText ?? "なし"}"),
                 Node($"取得項目数: {selectQuery.SelectItems.Count}"),
                 Node($"JOIN数: {selectQuery.Joins.Count}"),
                 Node($"サブクエリ数: {selectQuery.Subqueries.Count}"),
@@ -1003,27 +1065,6 @@ public sealed class QueryAnalysisTreeBuilder
     }
 
     /// <summary>
-    /// 注意点ノードを作る。
-    /// </summary>
-    private static DisplayTreeNode BuildNoticeNode(QueryAnalysisResult result)
-    {
-        var children = new List<DisplayTreeNode>();
-
-        children.AddRange(result.ParseIssues.Select(issue =>
-            Node($"構文エラー ({issue.Line}, {issue.Column}): {issue.Message}")));
-
-        children.AddRange(result.Notices.Select(notice =>
-            Node($"{BuildNoticeLevelText(notice.Level)}: {notice.Message}")));
-
-        if (children.Count == 0)
-        {
-            children.Add(Node("なし"));
-        }
-
-        return Node("注意点", children.ToArray());
-    }
-
-    /// <summary>
     /// 空入力や未対応時の概要を作る。
     /// </summary>
     private static string BuildFallbackOverview(QueryAnalysisResult result)
@@ -1031,9 +1072,25 @@ public sealed class QueryAnalysisTreeBuilder
         return result.StatementCategory switch
         {
             QueryStatementCategory.Empty => "SQL の入力待ちです。",
-            QueryStatementCategory.Unsupported => "初期版では未対応の文種別です。",
+            QueryStatementCategory.Unsupported => "未対応の文種別です。",
             QueryStatementCategory.ParseError => "構文エラーのため構造を展開できません。",
             _ => "解析結果はありません。"
+        };
+    }
+
+    /// <summary>
+    /// クエリ配下のサブクエリ一覧を返す。
+    /// SELECT 以外では現在の表示対象を持たないため空配列を返す。
+    /// </summary>
+    private static IReadOnlyList<SubqueryAnalysis> GetSubqueries(QueryExpressionAnalysis query)
+    {
+        return query switch
+        {
+            SelectQueryAnalysis selectQuery => selectQuery.Subqueries,
+            SetOperationQueryAnalysis setOperationQuery => GetSubqueries(setOperationQuery.LeftQuery)
+                .Concat(GetSubqueries(setOperationQuery.RightQuery))
+                .ToArray(),
+            _ => []
         };
     }
 
@@ -1068,24 +1125,19 @@ public sealed class QueryAnalysisTreeBuilder
     }
 
     /// <summary>
-    /// 注意レベルの表示名。
-    /// </summary>
-    private static string BuildNoticeLevelText(AnalysisNoticeLevel level)
-    {
-        return level switch
-        {
-            AnalysisNoticeLevel.Information => "補足",
-            AnalysisNoticeLevel.Warning => "警告",
-            AnalysisNoticeLevel.Error => "エラー",
-            _ => level.ToString()
-        };
-    }
-
-    /// <summary>
     /// 子ノード付きノードを簡潔に作るヘルパー。
     /// </summary>
     private static DisplayTreeNode Node(string text, params DisplayTreeNode[] children)
     {
         return new DisplayTreeNode(text, children);
+    }
+
+    /// <summary>
+    /// SQL 上の位置情報を持つ表示ノードを作る。
+    /// 選択連動や全文表示の起点として使う。
+    /// </summary>
+    private static DisplayTreeNode NodeWithSpan(string text, TextSpan? sourceSpan, params DisplayTreeNode[] children)
+    {
+        return new DisplayTreeNode(text, children, sourceSpan);
     }
 }

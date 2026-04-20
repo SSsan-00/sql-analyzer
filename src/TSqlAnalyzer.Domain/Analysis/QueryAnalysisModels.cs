@@ -10,6 +10,7 @@ public enum QueryStatementCategory
     Empty,
     Select,
     SetOperation,
+    Create,
     Update,
     Insert,
     Delete,
@@ -109,6 +110,16 @@ public enum InsertSourceKind
     Query,
     Execute,
     Unknown
+}
+
+/// <summary>
+/// CREATE 文の種別。
+/// 初期版では VIEW と TABLE を対象にし、他の CREATE 種別は将来拡張へ回す。
+/// </summary>
+public enum CreateStatementKind
+{
+    View,
+    Table
 }
 
 /// <summary>
@@ -214,6 +225,25 @@ public enum AnalysisNoticeLevel
 }
 
 /// <summary>
+/// 元 SQL 文字列上の位置情報。
+/// TreeView と入力欄の相互ハイライトに使うため、開始位置と長さを保持する。
+/// </summary>
+public sealed record TextSpan(int Start, int Length)
+{
+    public int End => Start + Length;
+
+    public bool Contains(int index)
+    {
+        return index >= Start && index < End;
+    }
+
+    public bool Contains(TextSpan other)
+    {
+        return other.Start >= Start && other.End <= End;
+    }
+}
+
+/// <summary>
 /// 画面やテストで利用する解析結果のルート。
 /// ScriptDom の生オブジェクトを外へ出さず、独自モデルとして完結させる。
 /// </summary>
@@ -223,7 +253,8 @@ public sealed record QueryAnalysisResult(
     QueryExpressionAnalysis? Query,
     IReadOnlyList<ParseIssue> ParseIssues,
     IReadOnlyList<AnalysisNotice> Notices,
-    DataModificationAnalysis? DataModification = null);
+    DataModificationAnalysis? DataModification = null,
+    CreateStatementAnalysis? CreateStatement = null);
 
 /// <summary>
 /// SELECT 系解析結果の再帰的な基底型。
@@ -239,13 +270,15 @@ public sealed record SelectQueryAnalysis(
     bool IsDistinct,
     string? TopExpressionText,
     IReadOnlyList<SelectItemAnalysis> SelectItems,
+    SourceAnalysis? IntoTarget,
     SourceAnalysis? MainSource,
     IReadOnlyList<JoinAnalysis> Joins,
     ConditionAnalysis? WhereCondition,
     GroupByAnalysis? GroupBy,
     ConditionAnalysis? HavingCondition,
     OrderByAnalysis? OrderBy,
-    IReadOnlyList<SubqueryAnalysis> Subqueries)
+    IReadOnlyList<SubqueryAnalysis> Subqueries,
+    TextSpan? SourceSpan = null)
     : QueryExpressionAnalysis(QueryExpressionKind.Select);
 
 /// <summary>
@@ -255,7 +288,8 @@ public sealed record SelectQueryAnalysis(
 public sealed record CommonTableExpressionAnalysis(
     string Name,
     IReadOnlyList<string> ColumnNames,
-    QueryExpressionAnalysis Query);
+    QueryExpressionAnalysis Query,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// UNION / EXCEPT / INTERSECT などの集合演算を表す。
@@ -264,8 +298,53 @@ public sealed record CommonTableExpressionAnalysis(
 public sealed record SetOperationQueryAnalysis(
     SetOperationType OperationType,
     QueryExpressionAnalysis LeftQuery,
-    QueryExpressionAnalysis RightQuery)
+    QueryExpressionAnalysis RightQuery,
+    TextSpan? SourceSpan = null)
     : QueryExpressionAnalysis(QueryExpressionKind.SetOperation);
+
+/// <summary>
+/// CREATE 文の共通情報を表す基底型。
+/// 作成種別と名前を共通化して、TreeView 側の見出し切り替えを簡潔にする。
+/// </summary>
+public abstract record CreateStatementAnalysis(
+    CreateStatementKind Kind,
+    string Name,
+    TextSpan? SourceSpan = null);
+
+/// <summary>
+/// CREATE VIEW 文の構造を表す。
+/// ビュー名と内部 SELECT を保持し、ビュー定義の構造をそのまま辿れるようにする。
+/// </summary>
+public sealed record CreateViewAnalysis(
+    string Name,
+    IReadOnlyList<string> ColumnNames,
+    QueryExpressionAnalysis Query,
+    bool WithCheckOption,
+    TextSpan? SourceSpan = null)
+    : CreateStatementAnalysis(CreateStatementKind.View, Name, SourceSpan);
+
+/// <summary>
+/// CREATE TABLE 文の構造を表す。
+/// 列定義に加えて CTAS の内部 SELECT も保持できるようにする。
+/// </summary>
+public sealed record CreateTableAnalysis(
+    string Name,
+    IReadOnlyList<CreateTableColumnAnalysis> Columns,
+    QueryExpressionAnalysis? Query,
+    TextSpan? SourceSpan = null)
+    : CreateStatementAnalysis(CreateStatementKind.Table, Name, SourceSpan);
+
+/// <summary>
+/// CREATE TABLE の列定義 1 件分を表す。
+/// 初期版では列名、データ型、NULL 許可の有無に絞って保持する。
+/// </summary>
+public sealed record CreateTableColumnAnalysis(
+    int Sequence,
+    string Name,
+    string DataType,
+    bool IsNullable,
+    string DisplayText,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// UPDATE / INSERT / DELETE の共通情報を表す基底型。
@@ -277,7 +356,8 @@ public abstract record DataModificationAnalysis(
     string? TopExpressionText,
     string? OutputClauseText,
     string? OutputIntoClauseText,
-    IReadOnlyList<SubqueryAnalysis> Subqueries);
+    IReadOnlyList<SubqueryAnalysis> Subqueries,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// UPDATE 文の構造を表す。
@@ -292,14 +372,16 @@ public sealed record UpdateStatementAnalysis(
     ConditionAnalysis? WhereCondition,
     string? OutputClauseText,
     string? OutputIntoClauseText,
-    IReadOnlyList<SubqueryAnalysis> Subqueries)
+    IReadOnlyList<SubqueryAnalysis> Subqueries,
+    TextSpan? SourceSpan = null)
     : DataModificationAnalysis(
         DataModificationKind.Update,
         Target,
         TopExpressionText,
         OutputClauseText,
         OutputIntoClauseText,
-        Subqueries);
+        Subqueries,
+        SourceSpan);
 
 /// <summary>
 /// INSERT 文の構造を表す。
@@ -313,14 +395,16 @@ public sealed record InsertStatementAnalysis(
     InsertSourceAnalysis? InsertSource,
     string? OutputClauseText,
     string? OutputIntoClauseText,
-    IReadOnlyList<SubqueryAnalysis> Subqueries)
+    IReadOnlyList<SubqueryAnalysis> Subqueries,
+    TextSpan? SourceSpan = null)
     : DataModificationAnalysis(
         DataModificationKind.Insert,
         Target,
         TopExpressionText,
         OutputClauseText,
         OutputIntoClauseText,
-        Subqueries);
+        Subqueries,
+        SourceSpan);
 
 /// <summary>
 /// DELETE 文の構造を表す。
@@ -334,14 +418,16 @@ public sealed record DeleteStatementAnalysis(
     ConditionAnalysis? WhereCondition,
     string? OutputClauseText,
     string? OutputIntoClauseText,
-    IReadOnlyList<SubqueryAnalysis> Subqueries)
+    IReadOnlyList<SubqueryAnalysis> Subqueries,
+    TextSpan? SourceSpan = null)
     : DataModificationAnalysis(
         DataModificationKind.Delete,
         Target,
         TopExpressionText,
         OutputClauseText,
         OutputIntoClauseText,
-        Subqueries);
+        Subqueries,
+        SourceSpan);
 
 /// <summary>
 /// UPDATE の SET 句 1 件分を表す。
@@ -351,7 +437,27 @@ public sealed record UpdateSetClauseAnalysis(
     int Sequence,
     string DisplayText,
     string TargetText,
-    string ValueText);
+    string ValueText,
+    TextSpan? SourceSpan = null);
+
+/// <summary>
+/// INSERT 時の列と値の対応 1 件分。
+/// どの列へどの値が入るかを、行単位で見やすく表示するために使う。
+/// </summary>
+public sealed record InsertValueMappingAnalysis(
+    int Sequence,
+    string TargetColumn,
+    string ValueText,
+    TextSpan? SourceSpan = null);
+
+/// <summary>
+/// INSERT 値対応の 1 グループ分。
+/// VALUES の複数行や SELECT 由来の 1 セットを区別して表示するために使う。
+/// </summary>
+public sealed record InsertValueMappingGroupAnalysis(
+    string Title,
+    IReadOnlyList<InsertValueMappingAnalysis> Mappings,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// INSERT の入力元情報。
@@ -362,7 +468,9 @@ public sealed record InsertSourceAnalysis(
     string DisplayText,
     IReadOnlyList<string> Items,
     QueryExpressionAnalysis? Query,
-    string? ExecuteText);
+    string? ExecuteText,
+    IReadOnlyList<InsertValueMappingGroupAnalysis> MappingGroups,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// SELECT 項目を表す。
@@ -376,7 +484,8 @@ public sealed record SelectItemAnalysis(
     string? Alias,
     string? AggregateFunctionName,
     SelectWildcardKind WildcardKind,
-    string? WildcardQualifier);
+    string? WildcardQualifier,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// FROM 句や JOIN 先として使われるソースを表す。
@@ -386,7 +495,17 @@ public sealed record SourceAnalysis(
     string DisplayText,
     QueryExpressionAnalysis? NestedQuery,
     SourceKind SourceKind,
-    string? SourceName);
+    string? SourceName,
+    TextSpan? SourceSpan = null);
+
+/// <summary>
+/// JOIN の ON 条件を分割表示するための 1 条件分。
+/// AND で連結された条件を見やすく 1 行ずつ保持する。
+/// </summary>
+public sealed record JoinConditionPartAnalysis(
+    int Sequence,
+    string DisplayText,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// JOIN 表示に必要な最小情報。
@@ -397,7 +516,9 @@ public sealed record JoinAnalysis(
     JoinType JoinType,
     string JoinTypeText,
     SourceAnalysis TargetSource,
-    string? OnConditionText);
+    string? OnConditionText,
+    IReadOnlyList<JoinConditionPartAnalysis> OnConditionParts,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// WHERE 句などの条件本体。
@@ -406,7 +527,8 @@ public sealed record JoinAnalysis(
 public sealed record ConditionAnalysis(
     string DisplayText,
     ConditionNodeAnalysis RootNode,
-    IReadOnlyList<ConditionMarker> Markers);
+    IReadOnlyList<ConditionMarker> Markers,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// 条件式の論理木 1 ノード分。
@@ -422,7 +544,8 @@ public sealed record ConditionNodeAnalysis(
     ConditionBetweenKind BetweenKind,
     ConditionLikeKind LikeKind,
     bool IsParenthesized,
-    ConditionMarker? Marker);
+    ConditionMarker? Marker,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// 条件式の中で検出した注目ポイント。
@@ -431,7 +554,8 @@ public sealed record ConditionNodeAnalysis(
 public sealed record ConditionMarker(
     ConditionMarkerType MarkerType,
     string DisplayText,
-    QueryExpressionAnalysis? NestedQuery);
+    QueryExpressionAnalysis? NestedQuery,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// GROUP BY の情報。
@@ -439,7 +563,8 @@ public sealed record ConditionMarker(
 /// </summary>
 public sealed record GroupByAnalysis(
     IReadOnlyList<string> Items,
-    string DisplayText);
+    string DisplayText,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// ORDER BY の情報。
@@ -447,7 +572,8 @@ public sealed record GroupByAnalysis(
 /// </summary>
 public sealed record OrderByAnalysis(
     IReadOnlyList<string> Items,
-    string DisplayText);
+    string DisplayText,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// サブクエリの出現箇所を表す。
@@ -456,7 +582,8 @@ public sealed record OrderByAnalysis(
 public sealed record SubqueryAnalysis(
     string Location,
     string DisplayText,
-    QueryExpressionAnalysis Query);
+    QueryExpressionAnalysis Query,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// パーサーから得た補足情報。

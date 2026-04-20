@@ -62,7 +62,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         {
             notices.Add(new AnalysisNotice(
                 AnalysisNoticeLevel.Information,
-                "XML 名前空間定義が含まれています。初期版ではクエリ本体と CTE を優先して表示します。"));
+                "XML 名前空間定義が含まれています。クエリ本体と CTE を優先して表示します。"));
         }
 
         var withClause = (statement as StatementWithCtesAndXmlNamespaces)?.WithCtesAndXmlNamespaces;
@@ -81,15 +81,26 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
 
         QueryExpressionAnalysis? query = null;
         DataModificationAnalysis? dataModification = null;
+        CreateStatementAnalysis? createStatement = null;
         QueryStatementCategory category;
 
         switch (statement)
         {
             case SelectStatement selectStatement when selectStatement.QueryExpression is not null:
-                query = core.AnalyzeQueryExpression(selectStatement.QueryExpression);
+                query = core.AnalyzeSelectStatement(selectStatement);
                 category = query.Kind == QueryExpressionKind.SetOperation
                     ? QueryStatementCategory.SetOperation
                     : QueryStatementCategory.Select;
+                break;
+
+            case CreateViewStatement createViewStatement when createViewStatement.SelectStatement?.QueryExpression is not null:
+                createStatement = core.AnalyzeCreateView(createViewStatement);
+                category = QueryStatementCategory.Create;
+                break;
+
+            case CreateTableStatement createTableStatement:
+                createStatement = core.AnalyzeCreateTable(createTableStatement);
+                category = QueryStatementCategory.Create;
                 break;
 
             case UpdateStatement updateStatement when updateStatement.UpdateSpecification is not null:
@@ -108,7 +119,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 break;
 
             default:
-                notices.Add(new AnalysisNotice(AnalysisNoticeLevel.Warning, "初期版ではこの文種別は未対応です。"));
+                notices.Add(new AnalysisNotice(AnalysisNoticeLevel.Warning, "この文種別は未対応です。"));
                 return new QueryAnalysisResult(
                     QueryStatementCategory.Unsupported,
                     commonTableExpressions,
@@ -117,7 +128,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     notices);
         }
 
-        return new QueryAnalysisResult(category, commonTableExpressions, query, [], notices, dataModification);
+        return new QueryAnalysisResult(category, commonTableExpressions, query, [], notices, dataModification, createStatement);
     }
 
     /// <summary>
@@ -141,7 +152,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             {
                 notices.Add(new AnalysisNotice(
                     AnalysisNoticeLevel.Information,
-                    "複数の文が入力されています。初期版では先頭の文を解析対象にします。"));
+                    "複数の文が入力されています。先頭の文を解析対象にします。"));
             }
 
             return statements[0];
@@ -214,8 +225,33 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 .Select(commonTableExpression => new CommonTableExpressionAnalysis(
                     commonTableExpression.ExpressionName.Value,
                     commonTableExpression.Columns?.Select(column => column.Value).ToArray() ?? [],
-                    AnalyzeQueryExpression(commonTableExpression.QueryExpression)))
+                    AnalyzeQueryExpression(commonTableExpression.QueryExpression),
+                    CreateTextSpan(commonTableExpression)))
                 .ToArray();
+        }
+
+        /// <summary>
+        /// SelectStatement 全体を解析する。
+        /// QueryExpression に加えて、SELECT INTO の出力先もここで補足する。
+        /// </summary>
+        public QueryExpressionAnalysis AnalyzeSelectStatement(SelectStatement selectStatement)
+        {
+            if (selectStatement.QueryExpression is null)
+            {
+                return CreateFallbackSelect("SELECT 文の QueryExpression が見つかりませんでした。");
+            }
+
+            var query = AnalyzeQueryExpression(selectStatement.QueryExpression);
+            if (query is not SelectQueryAnalysis selectQuery || selectStatement.Into is null)
+            {
+                return query;
+            }
+
+            return selectQuery with
+            {
+                IntoTarget = CreateSchemaObjectSource(selectStatement.Into),
+                SourceSpan = CreateTextSpan(selectStatement)
+            };
         }
 
         /// <summary>
@@ -242,7 +278,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 {
                     _notices.Add(new AnalysisNotice(
                         AnalysisNoticeLevel.Information,
-                        "FROM句に複数のソースが含まれています。初期版では先頭ソースを基準に解析し、残りは今後の拡張対象です。"));
+                        "FROM句に複数のソースが含まれています。先頭ソースを基準に解析し、残りは今後の拡張対象です。"));
                 }
             }
 
@@ -259,7 +295,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     .Select(grouping => _textExtractor.Normalize(grouping))
                     .ToArray();
 
-                groupBy = new GroupByAnalysis(items, _textExtractor.Normalize(groupByClause));
+                groupBy = new GroupByAnalysis(items, _textExtractor.Normalize(groupByClause), CreateTextSpan(groupByClause));
                 CollectImmediateSubqueries(groupByClause, "GROUP BY句", subqueries);
             }
 
@@ -276,7 +312,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     .Select(orderByElement => _textExtractor.Normalize(orderByElement))
                     .ToArray();
 
-                orderBy = new OrderByAnalysis(items, _textExtractor.Normalize(orderByClause));
+                orderBy = new OrderByAnalysis(items, _textExtractor.Normalize(orderByClause), CreateTextSpan(orderByClause));
                 CollectImmediateSubqueries(orderByClause, "ORDER BY句", subqueries);
             }
 
@@ -289,13 +325,54 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 IsDistinct(querySpecification),
                 BuildTopExpression(querySpecification.TopRowFilter),
                 selectItems,
+                null,
                 mainSource,
                 joins,
                 whereCondition,
                 groupBy,
                 havingConditionAnalysis,
                 orderBy,
-                subqueries.ToArray());
+                subqueries.ToArray(),
+                CreateTextSpan(querySpecification));
+        }
+
+        /// <summary>
+        /// CREATE VIEW 文を解析する。
+        /// ビュー名と内部 SELECT を保持し、ビュー定義の中身を追えるようにする。
+        /// </summary>
+        public CreateViewAnalysis AnalyzeCreateView(CreateViewStatement createViewStatement)
+        {
+            var query = AnalyzeSelectStatement(createViewStatement.SelectStatement);
+            var columnNames = createViewStatement.Columns?
+                .Select(column => column.Value)
+                .ToArray() ?? [];
+
+            return new CreateViewAnalysis(
+                NormalizeSchemaObjectName(createViewStatement.SchemaObjectName),
+                columnNames,
+                query,
+                createViewStatement.WithCheckOption,
+                CreateTextSpan(createViewStatement));
+        }
+
+        /// <summary>
+        /// CREATE TABLE 文を解析する。
+        /// 通常の列定義と CTAS の内部 SELECT を、どちらも失わない形で保持する。
+        /// </summary>
+        public CreateTableAnalysis AnalyzeCreateTable(CreateTableStatement createTableStatement)
+        {
+            var columns = createTableStatement.Definition?.ColumnDefinitions?
+                .Select((column, index) => AnalyzeCreateTableColumn(column, index + 1))
+                .ToArray() ?? [];
+            var query = createTableStatement.SelectStatement?.QueryExpression is not null
+                ? AnalyzeSelectStatement(createTableStatement.SelectStatement)
+                : null;
+
+            return new CreateTableAnalysis(
+                NormalizeSchemaObjectName(createTableStatement.SchemaObjectName),
+                columns,
+                query,
+                CreateTextSpan(createTableStatement));
         }
 
         /// <summary>
@@ -331,7 +408,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 whereCondition,
                 NormalizeOrNull(updateSpecification.OutputClause),
                 NormalizeOrNull(updateSpecification.OutputIntoClause),
-                subqueries.ToArray());
+                subqueries.ToArray(),
+                CreateTextSpan(updateSpecification));
         }
 
         /// <summary>
@@ -347,7 +425,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             var targetColumns = insertSpecification.Columns?
                 .Select(column => _textExtractor.Normalize(column))
                 .ToArray() ?? [];
-            var insertSource = AnalyzeInsertSource(insertSpecification.InsertSource, subqueries);
+            var insertSource = AnalyzeInsertSource(insertSpecification.InsertSource, targetColumns, subqueries);
 
             CollectImmediateSubqueries(insertSpecification.OutputClause, "OUTPUT句", subqueries);
             CollectImmediateSubqueries(insertSpecification.OutputIntoClause, "OUTPUT INTO句", subqueries);
@@ -360,7 +438,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 insertSource,
                 NormalizeOrNull(insertSpecification.OutputClause),
                 NormalizeOrNull(insertSpecification.OutputIntoClause),
-                subqueries.ToArray());
+                subqueries.ToArray(),
+                CreateTextSpan(insertSpecification));
         }
 
         /// <summary>
@@ -392,7 +471,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 whereCondition,
                 NormalizeOrNull(deleteSpecification.OutputClause),
                 NormalizeOrNull(deleteSpecification.OutputIntoClause),
-                subqueries.ToArray());
+                subqueries.ToArray(),
+                CreateTextSpan(deleteSpecification));
         }
 
         /// <summary>
@@ -410,7 +490,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     BuildSelectItemAlias(scalarExpression.ColumnName),
                     DetectAggregateFunctionName(scalarExpression.Expression),
                     SelectWildcardKind.None,
-                    null),
+                    null,
+                    CreateTextSpan(scalarExpression)),
                 SelectStarExpression starExpression => new SelectItemAnalysis(
                     sequence,
                     _textExtractor.Normalize(starExpression),
@@ -419,7 +500,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     null,
                     null,
                     starExpression.Qualifier is null ? SelectWildcardKind.AllColumns : SelectWildcardKind.QualifiedAllColumns,
-                    starExpression.Qualifier is null ? null : _textExtractor.Normalize(starExpression.Qualifier)),
+                    starExpression.Qualifier is null ? null : _textExtractor.Normalize(starExpression.Qualifier),
+                    CreateTextSpan(starExpression)),
                 SelectSetVariable setVariable => new SelectItemAnalysis(
                     sequence,
                     _textExtractor.Normalize(setVariable),
@@ -428,7 +510,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     _textExtractor.Normalize(setVariable.Variable),
                     DetectAggregateFunctionName(setVariable.Expression),
                     SelectWildcardKind.None,
-                    null),
+                    null,
+                    CreateTextSpan(setVariable)),
                 _ => new SelectItemAnalysis(
                     sequence,
                     _textExtractor.Normalize(element),
@@ -437,7 +520,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     null,
                     null,
                     SelectWildcardKind.None,
-                    null)
+                    null,
+                    CreateTextSpan(element))
             };
         }
 
@@ -457,17 +541,20 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     assignmentSetClause.Column is not null
                         ? _textExtractor.Normalize(assignmentSetClause.Column)
                         : NormalizeOrNull(assignmentSetClause.Variable) ?? "(変数)",
-                    NormalizeOrNull(assignmentSetClause.NewValue) ?? "NULL"),
+                    NormalizeOrNull(assignmentSetClause.NewValue) ?? "NULL",
+                    CreateTextSpan(setClause)),
                 FunctionCallSetClause functionCallSetClause => new UpdateSetClauseAnalysis(
                     sequence,
                     _textExtractor.Normalize(setClause),
                     "関数呼び出し",
-                    NormalizeOrNull(functionCallSetClause.MutatorFunction) ?? _textExtractor.Normalize(setClause)),
+                    NormalizeOrNull(functionCallSetClause.MutatorFunction) ?? _textExtractor.Normalize(setClause),
+                    CreateTextSpan(setClause)),
                 _ => new UpdateSetClauseAnalysis(
                     sequence,
                     _textExtractor.Normalize(setClause),
                     "(未分類)",
-                    _textExtractor.Normalize(setClause))
+                    _textExtractor.Normalize(setClause),
+                    CreateTextSpan(setClause))
             };
         }
 
@@ -475,7 +562,10 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         /// INSERT 入力元を解析する。
         /// SELECT 入力元では内部クエリも保持し、TreeView から深掘りできるようにする。
         /// </summary>
-        private InsertSourceAnalysis? AnalyzeInsertSource(InsertSource? insertSource, SubqueryAccumulator subqueries)
+        private InsertSourceAnalysis? AnalyzeInsertSource(
+            InsertSource? insertSource,
+            IReadOnlyList<string> targetColumns,
+            SubqueryAccumulator subqueries)
         {
             if (insertSource is null)
             {
@@ -502,7 +592,9 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                         _textExtractor.Normalize(insertSource),
                         items,
                         null,
-                        null);
+                        null,
+                        BuildValuesInsertMappingGroups(valuesInsertSource, targetColumns),
+                        CreateTextSpan(insertSource));
                 }
 
                 case SelectInsertSource selectInsertSource:
@@ -518,7 +610,9 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                         _textExtractor.Normalize(insertSource),
                         [],
                         query,
-                        null);
+                        null,
+                        BuildQueryInsertMappingGroups(query, targetColumns),
+                        CreateTextSpan(insertSource));
                 }
 
                 case ExecuteInsertSource executeInsertSource:
@@ -529,7 +623,9 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                         _textExtractor.Normalize(insertSource),
                         [],
                         null,
-                        NormalizeOrNull(executeInsertSource.Execute));
+                        NormalizeOrNull(executeInsertSource.Execute),
+                        [],
+                        CreateTextSpan(insertSource));
 
                 default:
                     CollectImmediateSubqueries(insertSource, "INSERT入力元", subqueries);
@@ -539,8 +635,96 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                         _textExtractor.Normalize(insertSource),
                         [],
                         null,
-                        null);
+                        null,
+                        [],
+                        CreateTextSpan(insertSource));
             }
+        }
+
+        /// <summary>
+        /// VALUES 入力元の各行を、挿入先列との対応表へ変換する。
+        /// </summary>
+        private IReadOnlyList<InsertValueMappingGroupAnalysis> BuildValuesInsertMappingGroups(
+            ValuesInsertSource valuesInsertSource,
+            IReadOnlyList<string> targetColumns)
+        {
+            if (valuesInsertSource.IsDefaultValues)
+            {
+                return [];
+            }
+
+            return valuesInsertSource.RowValues
+                .Select((rowValue, index) => new InsertValueMappingGroupAnalysis(
+                    $"行 #{index + 1}",
+                    BuildInsertValueMappings(rowValue.ColumnValues, targetColumns),
+                    CreateTextSpan(rowValue)))
+                .ToArray();
+        }
+
+        /// <summary>
+        /// INSERT ... SELECT の取得列を、挿入先列との対応表へ変換する。
+        /// </summary>
+        private IReadOnlyList<InsertValueMappingGroupAnalysis> BuildQueryInsertMappingGroups(
+            QueryExpressionAnalysis? query,
+            IReadOnlyList<string> targetColumns)
+        {
+            if (query is not SelectQueryAnalysis selectQuery || selectQuery.SelectItems.Count == 0)
+            {
+                return [];
+            }
+
+            var mappings = selectQuery.SelectItems
+                .Select((item, index) => new InsertValueMappingAnalysis(
+                    index + 1,
+                    ResolveInsertTargetColumn(targetColumns, index, item.Alias),
+                    item.ExpressionText,
+                    item.SourceSpan))
+                .ToArray();
+
+            return
+            [
+                new InsertValueMappingGroupAnalysis(
+                    "列対応",
+                    mappings,
+                    selectQuery.SourceSpan)
+            ];
+        }
+
+        /// <summary>
+        /// VALUES の 1 行分を列と値の対応へ変換する。
+        /// </summary>
+        private IReadOnlyList<InsertValueMappingAnalysis> BuildInsertValueMappings(
+            IList<ScalarExpression> values,
+            IReadOnlyList<string> targetColumns)
+        {
+            return values
+                .Select((value, index) => new InsertValueMappingAnalysis(
+                    index + 1,
+                    ResolveInsertTargetColumn(targetColumns, index, null),
+                    NormalizeOrNull(value) ?? "NULL",
+                    CreateTextSpan(value)))
+                .ToArray();
+        }
+
+        /// <summary>
+        /// 挿入先列名が省略されている場合でも、表示用の列名を決める。
+        /// </summary>
+        private static string ResolveInsertTargetColumn(
+            IReadOnlyList<string> targetColumns,
+            int index,
+            string? fallbackName)
+        {
+            if (index < targetColumns.Count && !string.IsNullOrWhiteSpace(targetColumns[index]))
+            {
+                return targetColumns[index];
+            }
+
+            if (!string.IsNullOrWhiteSpace(fallbackName))
+            {
+                return fallbackName;
+            }
+
+            return $"列 #{index + 1}";
         }
 
         /// <summary>
@@ -587,7 +771,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             return new SetOperationQueryAnalysis(
                 MapSetOperationType(binaryQueryExpression),
                 AnalyzeQueryExpression(binaryQueryExpression.FirstQueryExpression),
-                AnalyzeQueryExpression(binaryQueryExpression.SecondQueryExpression));
+                AnalyzeQueryExpression(binaryQueryExpression.SecondQueryExpression),
+                CreateTextSpan(binaryQueryExpression));
         }
 
         /// <summary>
@@ -607,7 +792,9 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                         MapJoinType(qualifiedJoin.QualifiedJoinType),
                         FormatJoinType(qualifiedJoin.QualifiedJoinType),
                         right.Source,
-                        NormalizeOrNull(qualifiedJoin.SearchCondition)));
+                        NormalizeOrNull(qualifiedJoin.SearchCondition),
+                        BuildJoinConditionParts(qualifiedJoin.SearchCondition),
+                        CreateTextSpan(qualifiedJoin)));
 
                     return new TableReferenceAnalysisResult(
                         left.MainSource ?? right.Source,
@@ -644,7 +831,9 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                         joinType,
                         joinTypeText,
                         right.Source,
-                        null));
+                        null,
+                        [],
+                        CreateTextSpan(unqualifiedJoin)));
 
                     return new TableReferenceAnalysisResult(
                         left.MainSource ?? right.Source,
@@ -672,11 +861,13 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     _textExtractor.Normalize(tableReference),
                     nestedQuery,
                     SourceKind.DerivedTable,
-                    null);
+                    null,
+                    CreateTextSpan(tableReference));
                 var subquery = new SubqueryAnalysis(
                     locationLabel,
                     _textExtractor.CreatePreview(derivedTable.QueryExpression),
-                    nestedQuery);
+                    nestedQuery,
+                    CreateTextSpan(derivedTable.QueryExpression));
 
                 return new SourceAnalysisResult(source, [subquery]);
             }
@@ -693,7 +884,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                         _textExtractor.Normalize(tableReference),
                         null,
                         sourceKind,
-                        sourceName),
+                        sourceName,
+                        CreateTextSpan(tableReference)),
                     []);
             }
 
@@ -702,8 +894,28 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     _textExtractor.Normalize(tableReference),
                     null,
                     SourceKind.Unknown,
-                    null),
+                    null,
+                    CreateTextSpan(tableReference)),
                 []);
+        }
+
+        /// <summary>
+        /// SchemaObjectName を通常ソースとして扱う表示モデルへ変換する。
+        /// SELECT INTO や CREATE 対象など、TableReference ではない名前付き対象で使う。
+        /// </summary>
+        private SourceAnalysis CreateSchemaObjectSource(SchemaObjectName schemaObjectName)
+        {
+            var sourceName = NormalizeSchemaObjectName(schemaObjectName);
+            var sourceKind = IsCommonTableExpressionReference(schemaObjectName)
+                ? SourceKind.CommonTableExpressionReference
+                : SourceKind.Object;
+
+            return new SourceAnalysis(
+                sourceName,
+                null,
+                sourceKind,
+                sourceName,
+                CreateTextSpan(schemaObjectName));
         }
 
         /// <summary>
@@ -724,7 +936,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             {
                 _notices.Add(new AnalysisNotice(
                     AnalysisNoticeLevel.Information,
-                    "FROM句に複数のソースが含まれています。初期版では先頭ソースを基準に解析し、残りは今後の拡張対象です。"));
+                    "FROM句に複数のソースが含まれています。先頭ソースを基準に解析し、残りは今後の拡張対象です。"));
             }
 
             return fromResult;
@@ -736,6 +948,26 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         private static string NormalizeSchemaObjectName(SchemaObjectName schemaObjectName)
         {
             return string.Join(".", schemaObjectName.Identifiers.Select(identifier => identifier.Value));
+        }
+
+        /// <summary>
+        /// CREATE TABLE の列定義 1 件分を解析する。
+        /// 初期版では列名、データ型、NULL 許可の有無に絞って保持する。
+        /// </summary>
+        private CreateTableColumnAnalysis AnalyzeCreateTableColumn(ColumnDefinition columnDefinition, int sequence)
+        {
+            var nullableConstraint = columnDefinition.Constraints
+                .OfType<NullableConstraintDefinition>()
+                .LastOrDefault();
+            var isNullable = nullableConstraint?.Nullable ?? true;
+
+            return new CreateTableColumnAnalysis(
+                sequence,
+                columnDefinition.ColumnIdentifier.Value,
+                NormalizeOrNull(columnDefinition.DataType) ?? "不明",
+                isNullable,
+                _textExtractor.Normalize(columnDefinition),
+                CreateTextSpan(columnDefinition));
         }
 
         /// <summary>
@@ -763,7 +995,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             return new ConditionAnalysis(
                 _textExtractor.Normalize(condition),
                 rootNode,
-                collector.Markers.ToArray());
+                collector.Markers.ToArray(),
+                CreateTextSpan(condition));
         }
 
         /// <summary>
@@ -893,6 +1126,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 null,
                 [],
                 null,
+                null,
                 [],
                 null,
                 null,
@@ -913,6 +1147,60 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
 
             var text = _textExtractor.Normalize(fragment);
             return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+
+        /// <summary>
+        /// ScriptDom 断片から相互ハイライト用の位置情報を作る。
+        /// </summary>
+        private static TextSpan? CreateTextSpan(TSqlFragment? fragment)
+        {
+            if (fragment is null || fragment.StartOffset < 0 || fragment.FragmentLength <= 0)
+            {
+                return null;
+            }
+
+            return new TextSpan(fragment.StartOffset, fragment.FragmentLength);
+        }
+
+        /// <summary>
+        /// JOIN の ON 条件を AND 単位で分割し、見やすい一覧へ変換する。
+        /// </summary>
+        private IReadOnlyList<JoinConditionPartAnalysis> BuildJoinConditionParts(BooleanExpression? searchCondition)
+        {
+            if (searchCondition is null)
+            {
+                return [];
+            }
+
+            var parts = new List<BooleanExpression>();
+            CollectJoinConditionParts(searchCondition, parts);
+
+            return parts
+                .Select((part, index) => new JoinConditionPartAnalysis(
+                    index + 1,
+                    _textExtractor.Normalize(part),
+                    CreateTextSpan(part)))
+                .ToArray();
+        }
+
+        /// <summary>
+        /// ON 条件の AND 連結を平坦化する。
+        /// OR を含む式は 1 まとまりとして残し、読み違えを避ける。
+        /// </summary>
+        private static void CollectJoinConditionParts(BooleanExpression expression, ICollection<BooleanExpression> parts)
+        {
+            var current = expression is BooleanParenthesisExpression parenthesisExpression
+                ? parenthesisExpression.Expression
+                : expression;
+
+            if (current is BooleanBinaryExpression { BinaryExpressionType: BooleanBinaryExpressionType.And } binaryExpression)
+            {
+                CollectJoinConditionParts(binaryExpression.FirstExpression, parts);
+                CollectJoinConditionParts(binaryExpression.SecondExpression, parts);
+                return;
+            }
+
+            parts.Add(expression);
         }
 
         /// <summary>
@@ -955,7 +1243,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 _items.Add(new SubqueryAnalysis(
                     location,
                     _textExtractor.CreatePreview(fragment),
-                    query));
+                    query,
+                    CreateTextSpan(fragment)));
             }
 
             public void AddRange(IEnumerable<SubqueryAnalysis> subqueries)
@@ -1045,7 +1334,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionBetweenKind.Unknown,
                     ConditionLikeKind.Unknown,
                     false,
-                    null);
+                    null,
+                    CreateTextSpan(node));
             }
 
             private ConditionNodeAnalysis BuildNotNode(BooleanNotExpression node)
@@ -1066,7 +1356,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionBetweenKind.Unknown,
                     ConditionLikeKind.Unknown,
                     false,
-                    null);
+                    null,
+                    CreateTextSpan(node));
             }
 
             private ConditionNodeAnalysis CreateExistsPredicateNode(
@@ -1078,7 +1369,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 var marker = new ConditionMarker(
                     markerType,
                     _textExtractor.Normalize(markerFragment),
-                    nestedQuery);
+                    nestedQuery,
+                    CreateTextSpan(markerFragment));
                 Markers.Add(marker);
 
                 _subqueries.Add(_locationLabel, subquery, nestedQuery);
@@ -1093,7 +1385,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionBetweenKind.Unknown,
                     ConditionLikeKind.Unknown,
                     false,
-                    marker);
+                    marker,
+                    CreateTextSpan(markerFragment));
             }
 
             private ConditionNodeAnalysis CreateInPredicateNode(InPredicate node)
@@ -1102,7 +1395,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 var marker = new ConditionMarker(
                     node.NotDefined ? ConditionMarkerType.NotIn : ConditionMarkerType.In,
                     _textExtractor.Normalize(node),
-                    nestedQuery);
+                    nestedQuery,
+                    CreateTextSpan(node));
                 Markers.Add(marker);
 
                 _subqueries.Add(_locationLabel, node.Subquery, nestedQuery);
@@ -1117,7 +1411,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ConditionBetweenKind.Unknown,
                     ConditionLikeKind.Unknown,
                     false,
-                    marker);
+                    marker,
+                    CreateTextSpan(node));
             }
 
             private ConditionNodeAnalysis CreatePlainPredicateNode(BooleanExpression expression)
@@ -1134,7 +1429,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     ClassifyBetweenKind(expression),
                     ClassifyLikeKind(expression),
                     false,
-                    null);
+                    null,
+                    CreateTextSpan(expression));
             }
 
             private static ConditionNodeAnalysis MarkParenthesized(ConditionNodeAnalysis node)

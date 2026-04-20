@@ -77,6 +77,30 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// SELECT INTO で INTO 先を保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_SelectInto_ReturnsIntoTarget()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id,
+                               u.Name
+                           INTO dbo.UserSnapshot
+                           FROM dbo.Users u
+                           WHERE u.IsActive = 1;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+
+        Assert.NotNull(query.IntoTarget);
+        Assert.Equal("dbo.UserSnapshot", query.IntoTarget!.DisplayText);
+        Assert.Equal(SourceKind.Object, query.IntoTarget.SourceKind);
+    }
+
+    /// <summary>
     /// SELECT * と table.* を区別して保持できることを確認する。
     /// </summary>
     [Fact]
@@ -129,6 +153,36 @@ public sealed class QueryAnalysisServiceTests
         Assert.Equal("LEFT JOIN", join.JoinTypeText);
         Assert.Contains("dbo.Orders o", join.TargetSource.DisplayText);
         Assert.Equal("u.Id = o.UserId", join.OnConditionText);
+        var joinCondition = Assert.Single(join.OnConditionParts);
+        Assert.Equal("u.Id = o.UserId", joinCondition.DisplayText);
+    }
+
+    /// <summary>
+    /// JOIN の ON 条件が AND で複数連結されている場合、分割して保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_SelectWithMultipleJoinConditions_ReturnsSplitJoinConditions()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id,
+                               o.OrderNo
+                           FROM dbo.Users u
+                           INNER JOIN dbo.Orders o
+                               ON u.Id = o.UserId
+                              AND o.IsDeleted = 0
+                              AND (o.Status = 'Open' OR o.Status = 'Pending');
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var join = Assert.Single(query.Joins);
+
+        Assert.Equal(3, join.OnConditionParts.Count);
+        Assert.Equal("u.Id = o.UserId", join.OnConditionParts[0].DisplayText);
+        Assert.Equal("o.IsDeleted = 0", join.OnConditionParts[1].DisplayText);
+        Assert.Equal("(o.Status = 'Open' OR o.Status = 'Pending')", join.OnConditionParts[2].DisplayText);
     }
 
     /// <summary>
@@ -675,6 +729,42 @@ public sealed class QueryAnalysisServiceTests
         Assert.Equal(InsertSourceKind.Query, insert.InsertSource!.SourceKind);
         Assert.NotNull(insert.InsertSource.Query);
         Assert.IsType<SelectQueryAnalysis>(insert.InsertSource.Query);
+        var mappingGroup = Assert.Single(insert.InsertSource.MappingGroups);
+        Assert.Equal("列対応", mappingGroup.Title);
+        Assert.Equal(2, mappingGroup.Mappings.Count);
+        Assert.Equal("UserId", mappingGroup.Mappings[0].TargetColumn);
+        Assert.Equal("u.Id", mappingGroup.Mappings[0].ValueText);
+        Assert.Equal("OrderCount", mappingGroup.Mappings[1].TargetColumn);
+        Assert.Equal("COUNT(*)", mappingGroup.Mappings[1].ValueText);
+    }
+
+    /// <summary>
+    /// INSERT ... VALUES 文で列と値の対応を行単位で保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_InsertValuesStatement_ReturnsValueMappings()
+    {
+        var service = CreateService();
+        const string sql = """
+                           INSERT INTO dbo.Users (Id, Name)
+                           VALUES
+                               (1, 'Alice'),
+                               (2, 'Bob');
+                           """;
+
+        var result = service.Analyze(sql);
+        var insert = Assert.IsType<InsertStatementAnalysis>(result.DataModification);
+        var insertSource = Assert.IsType<InsertSourceAnalysis>(insert.InsertSource);
+
+        Assert.Equal(InsertSourceKind.Values, insertSource.SourceKind);
+        Assert.Equal(2, insertSource.MappingGroups.Count);
+        Assert.Equal("行 #1", insertSource.MappingGroups[0].Title);
+        Assert.Equal("Id", insertSource.MappingGroups[0].Mappings[0].TargetColumn);
+        Assert.Equal("1", insertSource.MappingGroups[0].Mappings[0].ValueText);
+        Assert.Equal("Name", insertSource.MappingGroups[0].Mappings[1].TargetColumn);
+        Assert.Equal("'Alice'", insertSource.MappingGroups[0].Mappings[1].ValueText);
+        Assert.Equal("行 #2", insertSource.MappingGroups[1].Title);
+        Assert.Equal("'Bob'", insertSource.MappingGroups[1].Mappings[1].ValueText);
     }
 
     /// <summary>
@@ -706,6 +796,61 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// CREATE VIEW 文でビュー名と内部 SELECT を保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_CreateViewStatement_ReturnsCreateViewStructure()
+    {
+        var service = CreateService();
+        const string sql = """
+                           CREATE VIEW dbo.ActiveUsers
+                           AS
+                           SELECT
+                               u.Id,
+                               u.Name
+                           FROM dbo.Users u
+                           WHERE u.IsActive = 1;
+                           """;
+
+        var result = service.Analyze(sql);
+
+        Assert.Equal(QueryStatementCategory.Create, result.StatementCategory);
+        Assert.Null(result.Query);
+
+        var create = Assert.IsType<CreateViewAnalysis>(result.CreateStatement);
+        Assert.Equal(CreateStatementKind.View, create.Kind);
+        Assert.Equal("dbo.ActiveUsers", create.Name);
+        var query = Assert.IsType<SelectQueryAnalysis>(create.Query);
+        Assert.NotNull(query.WhereCondition);
+    }
+
+    /// <summary>
+    /// CREATE TABLE 文で列定義を保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_CreateTableStatement_ReturnTableStructure()
+    {
+        var service = CreateService();
+        const string tableSql = """
+                                CREATE TABLE dbo.Users (
+                                    Id INT NOT NULL,
+                                    Name NVARCHAR(100) NULL
+                                );
+                                """;
+
+        var tableResult = service.Analyze(tableSql);
+
+        Assert.Equal(QueryStatementCategory.Create, tableResult.StatementCategory);
+        var table = Assert.IsType<CreateTableAnalysis>(tableResult.CreateStatement);
+        Assert.Equal("dbo.Users", table.Name);
+        Assert.Equal(2, table.Columns.Count);
+        Assert.Equal("Id", table.Columns[0].Name);
+        Assert.Equal("INT", table.Columns[0].DataType);
+        Assert.False(table.Columns[0].IsNullable);
+        Assert.Null(table.Query);
+    }
+
+    /// <summary>
     /// 空入力時に例外ではなく、利用者に返せる結果になることを確認する。
     /// </summary>
     [Fact]
@@ -734,6 +879,7 @@ public sealed class QueryAnalysisServiceTests
         Assert.Equal(QueryStatementCategory.Unsupported, result.StatementCategory);
         Assert.Null(result.Query);
         Assert.Contains(result.Notices, notice => notice.Message.Contains("未対応", StringComparison.Ordinal));
+        Assert.DoesNotContain(result.Notices, notice => notice.Message.Contains("初期版では", StringComparison.Ordinal));
     }
 
     private static QueryAnalysisService CreateService()

@@ -10,6 +10,7 @@ src/TSqlAnalyzer.Application/Analysis/CommonTableExpressionDependencyAnalyzer.cs
 src/TSqlAnalyzer.Application/Analysis/ISqlQueryAnalyzer.cs
 src/TSqlAnalyzer.Application/Analysis/ScriptDomQueryAnalyzer.cs
 src/TSqlAnalyzer.Application/Presentation/DisplayTreeNode.cs
+src/TSqlAnalyzer.Application/Presentation/DisplayTreeNodeNavigator.cs
 src/TSqlAnalyzer.Application/Presentation/QueryAnalysisTreeBuilder.cs
 src/TSqlAnalyzer.Application/Services/IQueryAnalysisService.cs
 src/TSqlAnalyzer.Application/Services/QueryAnalysisService.cs

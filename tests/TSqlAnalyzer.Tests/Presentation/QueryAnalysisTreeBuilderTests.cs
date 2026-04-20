@@ -41,15 +41,45 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("JOIN #1", flattenedTexts);
         Assert.Contains("種別: LEFT JOIN", flattenedTexts);
         Assert.Contains("結合先: dbo.Orders o", flattenedTexts);
-        Assert.Contains("ON条件: u.Id = o.UserId", flattenedTexts);
+        Assert.Contains("ON条件", flattenedTexts);
+        Assert.Contains("条件 #1: u.Id = o.UserId", flattenedTexts);
         Assert.Contains("抽出条件", flattenedTexts);
     }
 
     /// <summary>
-    /// SELECT 項目で別名と集計関数の詳細が表示されることを確認する。
+    /// JOIN の ON 条件が複数ある場合、条件ごとに分割表示されることを確認する。
     /// </summary>
     [Fact]
-    public void Build_ForSelectItems_ContainsAliasAndAggregateTexts()
+    public void Build_ForJoinWithMultipleConditions_SplitsOnConditions()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id,
+                               o.OrderNo
+                           FROM dbo.Users u
+                           INNER JOIN dbo.Orders o
+                               ON u.Id = o.UserId
+                              AND o.IsDeleted = 0
+                              AND (o.Status = 'Open' OR o.Status = 'Pending');
+                           """;
+
+        var analysis = service.Analyze(sql);
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("ON条件", flattenedTexts);
+        Assert.Contains("条件 #1: u.Id = o.UserId", flattenedTexts);
+        Assert.Contains("条件 #2: o.IsDeleted = 0", flattenedTexts);
+        Assert.Contains("条件 #3: (o.Status = 'Open' OR o.Status = 'Pending')", flattenedTexts);
+    }
+
+    /// <summary>
+    /// SELECT 項目で別名を表示しつつ、不要な集計関数ラベルを出さないことを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForSelectItems_HidesAggregateLabel()
     {
         var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
         var builder = new QueryAnalysisTreeBuilder();
@@ -72,9 +102,33 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("取得項目", flattenedTexts);
         Assert.Contains("別名: UserId", flattenedTexts);
         Assert.Contains("別名: TotalAmount", flattenedTexts);
-        Assert.Contains("集計関数: SUM", flattenedTexts);
-        Assert.Contains("集計関数: COUNT", flattenedTexts);
         Assert.Contains("種別: 式", flattenedTexts);
+        Assert.DoesNotContain(flattenedTexts, text => text.StartsWith("集計関数:", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// SELECT INTO の場合、INTO 先が TreeView に表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForSelectInto_ContainsIntoTargetTexts()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id,
+                               u.Name
+                           INTO dbo.UserSnapshot
+                           FROM dbo.Users u;
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("出力先", flattenedTexts);
+        Assert.Contains("dbo.UserSnapshot", flattenedTexts);
     }
 
     /// <summary>
@@ -257,11 +311,10 @@ public sealed class QueryAnalysisTreeBuilderTests
         var tree = builder.Build(analysis);
         var flattenedTexts = Flatten(tree).ToArray();
 
-        Assert.Contains("条件種別", flattenedTexts);
-        Assert.Contains("条件 #1", flattenedTexts);
-        Assert.Contains("種別: EXISTS", flattenedTexts);
+        Assert.Contains("EXISTS", flattenedTexts);
         Assert.Contains("内部クエリ", flattenedTexts);
         Assert.Contains(flattenedTexts, text => text.Contains("dbo.Orders o", StringComparison.Ordinal));
+        Assert.DoesNotContain("条件種別", flattenedTexts);
     }
 
     /// <summary>
@@ -298,10 +351,10 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
-    /// 括弧で囲まれた条件グループが TreeView から分かることを確認する。
+    /// 括弧ラベルを表示せず、条件構造だけで追えることを確認する。
     /// </summary>
     [Fact]
-    public void Build_ForParenthesizedCondition_ContainsParenthesisTexts()
+    public void Build_ForParenthesizedCondition_HidesParenthesisLabel()
     {
         var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
         var builder = new QueryAnalysisTreeBuilder();
@@ -318,15 +371,15 @@ public sealed class QueryAnalysisTreeBuilderTests
         var tree = builder.Build(analysis);
         var flattenedTexts = Flatten(tree).ToArray();
 
-        Assert.Contains("括弧: あり", flattenedTexts);
         Assert.Contains("OR", flattenedTexts);
+        Assert.DoesNotContain("括弧: あり", flattenedTexts);
     }
 
     /// <summary>
-    /// 条件論理木の葉ノードに述語種別が表示されることを確認する。
+    /// 条件論理木では不要な種別ラベルを表示しないことを確認する。
     /// </summary>
     [Fact]
-    public void Build_ForVariousPredicates_ContainsPredicateKindTexts()
+    public void Build_ForVariousPredicates_HidesRemovedConditionLabels()
     {
         var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
         var builder = new QueryAnalysisTreeBuilder();
@@ -350,18 +403,18 @@ public sealed class QueryAnalysisTreeBuilderTests
         var tree = builder.Build(analysis);
         var flattenedTexts = Flatten(tree).ToArray();
 
-        Assert.Contains("述語種別: 比較", flattenedTexts);
-        Assert.Contains("述語種別: NULL判定", flattenedTexts);
-        Assert.Contains("述語種別: LIKE", flattenedTexts);
-        Assert.Contains("述語種別: BETWEEN", flattenedTexts);
-        Assert.Contains("述語種別: EXISTS", flattenedTexts);
+        Assert.Contains("LIKE種別: LIKE", flattenedTexts);
+        Assert.Contains("範囲種別: BETWEEN", flattenedTexts);
+        Assert.Contains("EXISTS", flattenedTexts);
+        Assert.DoesNotContain(flattenedTexts, text => text.StartsWith("述語種別:", StringComparison.Ordinal));
+        Assert.DoesNotContain("条件種別", flattenedTexts);
     }
 
     /// <summary>
-    /// 比較述語では比較演算子の種類も表示されることを確認する。
+    /// 比較述語でも比較種別ラベルを表示しないことを確認する。
     /// </summary>
     [Fact]
-    public void Build_ForComparisonPredicates_ContainsComparisonKindTexts()
+    public void Build_ForComparisonPredicates_HidesComparisonKindTexts()
     {
         var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
         var builder = new QueryAnalysisTreeBuilder();
@@ -379,16 +432,15 @@ public sealed class QueryAnalysisTreeBuilderTests
         var tree = builder.Build(analysis);
         var flattenedTexts = Flatten(tree).ToArray();
 
-        Assert.Contains("比較種別: 等価 (=)", flattenedTexts);
-        Assert.Contains("比較種別: 以上 (>=)", flattenedTexts);
-        Assert.Contains("比較種別: 不等価 (<>)", flattenedTexts);
+        Assert.DoesNotContain(flattenedTexts, text => text.StartsWith("比較種別:", StringComparison.Ordinal));
+        Assert.Contains(flattenedTexts, text => text.Contains("u.Score >= 80", StringComparison.Ordinal));
     }
 
     /// <summary>
-    /// NULL 判定と BETWEEN 系の詳細種別が表示されることを確認する。
+    /// NULL 判定種別ラベルを出さず、必要な範囲種別だけを残すことを確認する。
     /// </summary>
     [Fact]
-    public void Build_ForNullAndBetweenPredicates_ContainsDetailKindTexts()
+    public void Build_ForNullAndBetweenPredicates_HidesNullKindTexts()
     {
         var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
         var builder = new QueryAnalysisTreeBuilder();
@@ -407,10 +459,9 @@ public sealed class QueryAnalysisTreeBuilderTests
         var tree = builder.Build(analysis);
         var flattenedTexts = Flatten(tree).ToArray();
 
-        Assert.Contains("NULL判定種別: IS NULL", flattenedTexts);
-        Assert.Contains("NULL判定種別: IS NOT NULL", flattenedTexts);
         Assert.Contains("範囲種別: BETWEEN", flattenedTexts);
         Assert.Contains("範囲種別: NOT BETWEEN", flattenedTexts);
+        Assert.DoesNotContain(flattenedTexts, text => text.StartsWith("NULL判定種別:", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -573,6 +624,9 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("挿入対象", insertTexts);
         Assert.Contains("挿入列", insertTexts);
         Assert.Contains("入力元", insertTexts);
+        Assert.Contains("列と値の対応", insertTexts);
+        Assert.Contains("対応 #1: UserId <= u.Id", insertTexts);
+        Assert.Contains("対応 #2: OrderCount <= COUNT(*)", insertTexts);
         Assert.Contains("種別: SELECTクエリ", insertTexts);
         Assert.Contains("内部クエリ", insertTexts);
 
@@ -593,6 +647,71 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("結合", deleteTexts);
         Assert.Contains("種別: LEFT JOIN", deleteTexts);
         Assert.Contains("抽出条件", deleteTexts);
+    }
+
+    /// <summary>
+    /// 不要な注意点ノードを表示せず、未対応文言も短く保つことを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForUnsupportedStatement_HidesNoticeNodeAndShortensMessage()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+
+        var analysis = service.Analyze("MERGE dbo.Users AS target USING dbo.NewUsers AS source ON target.Id = source.Id WHEN MATCHED THEN UPDATE SET target.Name = source.Name;");
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.DoesNotContain("注意点", flattenedTexts);
+        Assert.Contains("未対応の文種別です。", flattenedTexts);
+        Assert.DoesNotContain(flattenedTexts, text => text.Contains("初期版では", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// CREATE VIEW と CREATE TABLE でも TreeView から主要構造を追えることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForCreateStatements_ContainsCreateNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+
+        const string createViewSql = """
+                                     CREATE VIEW dbo.ActiveUsers
+                                     AS
+                                     SELECT
+                                         u.Id,
+                                         u.Name
+                                     FROM dbo.Users u
+                                     WHERE u.IsActive = 1;
+                                     """;
+
+        var createViewAnalysis = service.Analyze(createViewSql);
+        var createViewTree = builder.Build(createViewAnalysis);
+        var createViewTexts = Flatten(createViewTree).ToArray();
+
+        Assert.Contains("文種別: CREATE", createViewTexts);
+        Assert.Contains("作成対象", createViewTexts);
+        Assert.Contains("種別: VIEW", createViewTexts);
+        Assert.Contains("名前: dbo.ActiveUsers", createViewTexts);
+        Assert.Contains("内部クエリ", createViewTexts);
+
+        const string createTableSql = """
+                                      CREATE TABLE dbo.Users (
+                                          Id INT NOT NULL,
+                                          Name NVARCHAR(100) NULL
+                                      );
+                                      """;
+
+        var createTableAnalysis = service.Analyze(createTableSql);
+        var createTableTree = builder.Build(createTableAnalysis);
+        var createTableTexts = Flatten(createTableTree).ToArray();
+
+        Assert.Contains("種別: TABLE", createTableTexts);
+        Assert.Contains("列定義", createTableTexts);
+        Assert.Contains("列 #1: Id", createTableTexts);
+        Assert.Contains("データ型: INT", createTableTexts);
+        Assert.Contains("NULL許可: なし", createTableTexts);
     }
 
     private static IEnumerable<string> Flatten(DisplayTreeNode node)
