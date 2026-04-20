@@ -149,7 +149,7 @@ internal static class Program
                  -->
                  <Project Sdk="Microsoft.NET.Sdk">
                    <PropertyGroup>
-                     <TargetFramework>net10.0</TargetFramework>
+                     <TargetFramework>net9.0</TargetFramework>
                      <OutputType>Library</OutputType>
                      <Nullable>enable</Nullable>
                      <ImplicitUsings>enable</ImplicitUsings>
