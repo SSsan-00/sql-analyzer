@@ -142,6 +142,54 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// 無修飾列が単一ソースへ解決された場合、参照先が TreeView に表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForUnqualifiedColumnWithSingleSource_ContainsResolvedSource()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               Id
+                           FROM dbo.Users u
+                           WHERE IsActive = 1;
+                           """;
+
+        var analysis = service.Analyze(sql);
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("列 #1: Id", flattenedTexts);
+        Assert.Contains("解決状態: 解決済み", flattenedTexts);
+        Assert.Contains("参照先: dbo.Users u", flattenedTexts);
+        Assert.Contains("参照別名: u", flattenedTexts);
+    }
+
+    /// <summary>
+    /// ORDER BY が SELECT 項目別名を参照している場合、参照先に別名情報が表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForOrderBySelectAlias_ContainsSelectAliasTarget()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               SUM(o.Amount) AS TotalAmount
+                           FROM dbo.Orders o
+                           ORDER BY TotalAmount;
+                           """;
+
+        var analysis = service.Analyze(sql);
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("列 #1: TotalAmount", flattenedTexts);
+        Assert.Contains("参照先: SELECT別名 TotalAmount: SUM(o.Amount)", flattenedTexts);
+    }
+
+    /// <summary>
     /// SELECT INTO の場合、INTO 先が TreeView に表示されることを確認する。
     /// </summary>
     [Fact]

@@ -1164,7 +1164,7 @@ public sealed class QueryAnalysisTreeBuilder
                     Node($"修飾子: {columnReference.Qualifier ?? "なし"}"),
                     Node($"列名: {columnReference.ColumnName}"),
                     Node($"解決状態: {BuildColumnReferenceResolutionStatusText(columnReference.ResolutionStatus)}"),
-                    Node($"参照先: {columnReference.ResolvedSourceDisplayText ?? "なし"}"),
+                    Node($"参照先: {columnReference.ResolvedTargetDisplayText ?? columnReference.ResolvedSourceDisplayText ?? "なし"}"),
                     Node($"参照別名: {columnReference.ResolvedSourceAlias ?? "なし"}")))
                 .ToArray());
     }

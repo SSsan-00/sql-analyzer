@@ -162,16 +162,50 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
-    /// 無修飾列は安全側で未解決のまま保持することを確認する。
+    /// 無修飾列でも有効スコープのソースが 1 つだけなら解決できることを確認する。
     /// </summary>
     [Fact]
-    public void Analyze_UnqualifiedColumnReference_RemainsUnresolved()
+    public void Analyze_UnqualifiedColumnReference_WithSingleSource_ResolvesToThatSource()
     {
         var service = CreateService();
         const string sql = """
                            SELECT
                                Id
-                           FROM dbo.Users u;
+                           FROM dbo.Users u
+                           WHERE IsActive = 1;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var selectColumnReference = Assert.Single(query.SelectItems[0].ColumnReferences);
+        var whereCondition = Assert.IsType<ConditionAnalysis>(query.WhereCondition);
+        var whereColumnReference = Assert.Single(whereCondition.ColumnReferences);
+
+        Assert.Null(selectColumnReference.Qualifier);
+        Assert.Equal("Id", selectColumnReference.ColumnName);
+        Assert.Equal(ColumnReferenceResolutionStatus.Resolved, selectColumnReference.ResolutionStatus);
+        Assert.Equal("dbo.Users u", selectColumnReference.ResolvedSourceDisplayText);
+        Assert.Equal("u", selectColumnReference.ResolvedSourceAlias);
+
+        Assert.Null(whereColumnReference.Qualifier);
+        Assert.Equal("IsActive", whereColumnReference.ColumnName);
+        Assert.Equal(ColumnReferenceResolutionStatus.Resolved, whereColumnReference.ResolutionStatus);
+        Assert.Equal("dbo.Users u", whereColumnReference.ResolvedSourceDisplayText);
+    }
+
+    /// <summary>
+    /// 複数の通常ソースがある場合、無修飾列は安全側で未解決のまま保持することを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_UnqualifiedColumnReference_WithMultipleObjectSources_RemainsUnresolved()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               Id
+                           FROM dbo.Users u
+                           INNER JOIN dbo.Orders o
+                               ON u.Id = o.UserId;
                            """;
 
         var result = service.Analyze(sql);
@@ -182,6 +216,71 @@ public sealed class QueryAnalysisServiceTests
         Assert.Equal("Id", columnReference.ColumnName);
         Assert.Equal(ColumnReferenceResolutionStatus.Unresolved, columnReference.ResolutionStatus);
         Assert.Null(columnReference.ResolvedSourceDisplayText);
+    }
+
+    /// <summary>
+    /// 複数ソースでも、すべてのソースの出力列が明示されていて一意なら無修飾列を解決できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_UnqualifiedColumnReference_WithExplicitProjectedSources_ResolvesToMatchingSource()
+    {
+        var service = CreateService();
+        const string sql = """
+                           WITH active_users AS (
+                               SELECT
+                                   u.Id,
+                                   u.Name
+                               FROM dbo.Users u
+                           )
+                           SELECT
+                               Name
+                           FROM active_users au
+                           INNER JOIN (
+                               SELECT
+                                   o.UserId,
+                                   o.OrderNo
+                               FROM dbo.Orders o
+                           ) ord
+                               ON au.Id = ord.UserId;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var columnReference = Assert.Single(query.SelectItems[0].ColumnReferences);
+
+        Assert.Null(columnReference.Qualifier);
+        Assert.Equal("Name", columnReference.ColumnName);
+        Assert.Equal(ColumnReferenceResolutionStatus.Resolved, columnReference.ResolutionStatus);
+        Assert.Equal("active_users au", columnReference.ResolvedSourceDisplayText);
+        Assert.Equal("au", columnReference.ResolvedSourceAlias);
+        Assert.Equal(SourceKind.CommonTableExpressionReference, columnReference.ResolvedSourceKind);
+    }
+
+    /// <summary>
+    /// ORDER BY が SELECT 項目別名を参照している場合、無修飾でも解決できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_OrderByUnqualifiedAlias_ResolvesToSelectAlias()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               SUM(o.Amount) AS TotalAmount
+                           FROM dbo.Orders o
+                           ORDER BY TotalAmount;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+        var orderBy = Assert.IsType<OrderByAnalysis>(query.OrderBy);
+        var columnReference = Assert.Single(orderBy.OrderItems[0].ColumnReferences);
+
+        Assert.Null(columnReference.Qualifier);
+        Assert.Equal("TotalAmount", columnReference.ColumnName);
+        Assert.Equal(ColumnReferenceResolutionStatus.Resolved, columnReference.ResolutionStatus);
+        Assert.Equal("SELECT別名 TotalAmount: SUM(o.Amount)", columnReference.ResolvedTargetDisplayText);
+        Assert.Equal("TotalAmount", columnReference.ResolvedSelectItemAlias);
+        Assert.Equal("dbo.Orders o", columnReference.ResolvedSourceDisplayText);
     }
 
     /// <summary>

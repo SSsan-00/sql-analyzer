@@ -189,12 +189,14 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         private readonly SqlTextExtractor _textExtractor;
         private readonly ICollection<AnalysisNotice> _notices;
         private readonly HashSet<string> _commonTableExpressionNames;
+        private readonly Dictionary<string, CommonTableExpressionAnalysis> _commonTableExpressionRegistry;
 
         public AnalyzerCore(string sql, ICollection<AnalysisNotice> notices, IEnumerable<string> commonTableExpressionNames)
         {
             _textExtractor = new SqlTextExtractor(sql);
             _notices = notices;
             _commonTableExpressionNames = new HashSet<string>(commonTableExpressionNames, StringComparer.OrdinalIgnoreCase);
+            _commonTableExpressionRegistry = new Dictionary<string, CommonTableExpressionAnalysis>(StringComparer.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -221,13 +223,28 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 return [];
             }
 
-            return commonTableExpressions
-                .Select(commonTableExpression => new CommonTableExpressionAnalysis(
+            var items = new List<CommonTableExpressionAnalysis>();
+
+            foreach (var commonTableExpression in commonTableExpressions)
+            {
+                var query = AnalyzeQueryExpression(commonTableExpression.QueryExpression);
+                var columnNames = commonTableExpression.Columns?.Select(column => column.Value).ToArray() ?? [];
+                if (columnNames.Length == 0)
+                {
+                    columnNames = ExtractExposedColumnNames(query);
+                }
+
+                var analysis = new CommonTableExpressionAnalysis(
                     commonTableExpression.ExpressionName.Value,
-                    commonTableExpression.Columns?.Select(column => column.Value).ToArray() ?? [],
-                    AnalyzeQueryExpression(commonTableExpression.QueryExpression),
-                    CreateTextSpan(commonTableExpression)))
-                .ToArray();
+                    columnNames,
+                    query,
+                    CreateTextSpan(commonTableExpression));
+
+                items.Add(analysis);
+                _commonTableExpressionRegistry[analysis.Name] = analysis;
+            }
+
+            return items;
         }
 
         /// <summary>
@@ -283,6 +300,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             var selectItems = querySpecification.SelectElements
                 .Select((element, index) => ResolveColumnReferences(AnalyzeSelectItem(element, index + 1), sourceIndex))
                 .ToArray();
+            var selectAliasIndex = BuildSelectAliasIndex(selectItems);
 
             ConditionAnalysis? whereCondition = null;
             if (querySpecification.WhereClause?.SearchCondition is { } searchCondition)
@@ -329,9 +347,9 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 orderBy = new OrderByAnalysis(items, _textExtractor.Normalize(orderByClause), CreateTextSpan(orderByClause))
                 {
                     OrderItems = orderItems
-                        .Select(orderItem => ResolveColumnReferences(orderItem, sourceIndex))
+                        .Select(orderItem => ResolveColumnReferences(orderItem, sourceIndex, selectAliasIndex))
                         .ToArray(),
-                    ColumnReferences = ResolveColumnReferences(CollectColumnReferences(orderByClause), sourceIndex)
+                    ColumnReferences = ResolveColumnReferences(CollectColumnReferences(orderByClause), sourceIndex, selectAliasIndex)
                 };
                 CollectImmediateSubqueries(orderByClause, "ORDER BY句", subqueries);
             }
@@ -841,8 +859,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         }
 
         /// <summary>
-        /// 現在のクエリで利用できるソース一覧から、別名解決用の索引を作る。
-        /// 修飾子付き列参照だけを安全に解決するために使う。
+        /// 現在のクエリで利用できるソース一覧から、列解決用の索引を作る。
+        /// 修飾子付きだけでなく、単一ソースや明示列による未修飾列解決にも使う。
         /// </summary>
         private static SourceResolutionIndex BuildSourceIndex(
             SourceAnalysis? mainSource,
@@ -850,20 +868,49 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             params SourceAnalysis[] additionalSources)
         {
             var entries = new Dictionary<string, List<SourceAnalysis>>(StringComparer.OrdinalIgnoreCase);
+            var explicitColumnEntries = new Dictionary<string, List<SourceAnalysis>>(StringComparer.OrdinalIgnoreCase);
+            var sources = new List<SourceAnalysis>();
 
-            AddSourceToIndex(entries, mainSource);
+            AddSourceToIndex(entries, explicitColumnEntries, sources, mainSource);
 
             foreach (var join in joins)
             {
-                AddSourceToIndex(entries, join.TargetSource);
+                AddSourceToIndex(entries, explicitColumnEntries, sources, join.TargetSource);
             }
 
             foreach (var source in additionalSources)
             {
-                AddSourceToIndex(entries, source);
+                AddSourceToIndex(entries, explicitColumnEntries, sources, source);
             }
 
-            return new SourceResolutionIndex(entries);
+            return new SourceResolutionIndex(entries, explicitColumnEntries, sources);
+        }
+
+        /// <summary>
+        /// SELECT 項目別名の索引を作る。
+        /// ORDER BY で別名参照が使われた場合に、元の SELECT 項目へ戻れるようにする。
+        /// </summary>
+        private static SelectAliasResolutionIndex BuildSelectAliasIndex(IReadOnlyList<SelectItemAnalysis> selectItems)
+        {
+            var entries = new Dictionary<string, List<SelectItemAnalysis>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var selectItem in selectItems)
+            {
+                if (string.IsNullOrWhiteSpace(selectItem.Alias))
+                {
+                    continue;
+                }
+
+                if (!entries.TryGetValue(selectItem.Alias, out var items))
+                {
+                    items = [];
+                    entries[selectItem.Alias] = items;
+                }
+
+                items.Add(selectItem);
+            }
+
+            return new SelectAliasResolutionIndex(entries);
         }
 
         /// <summary>
@@ -889,13 +936,16 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         }
 
         /// <summary>
-        /// ORDER BY 項目の列参照をソースへ解決する。
+        /// ORDER BY 項目の列参照をソースまたは SELECT 別名へ解決する。
         /// </summary>
-        private static OrderByItemAnalysis ResolveColumnReferences(OrderByItemAnalysis orderByItem, SourceResolutionIndex sourceIndex)
+        private static OrderByItemAnalysis ResolveColumnReferences(
+            OrderByItemAnalysis orderByItem,
+            SourceResolutionIndex sourceIndex,
+            SelectAliasResolutionIndex selectAliasIndex)
         {
             return orderByItem with
             {
-                ColumnReferences = ResolveColumnReferences(orderByItem.ColumnReferences, sourceIndex)
+                ColumnReferences = ResolveColumnReferences(orderByItem.ColumnReferences, sourceIndex, selectAliasIndex)
             };
         }
 
@@ -941,34 +991,58 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         }
 
         /// <summary>
-        /// 生の列参照一覧をソース解決済みへ変換する。
-        /// 無修飾列は今は安全側で未解決として残す。
+        /// 生の列参照一覧を解決済みへ変換する。
         /// </summary>
         private static IReadOnlyList<ColumnReferenceAnalysis> ResolveColumnReferences(
             IReadOnlyList<ColumnReferenceAnalysis> columnReferences,
-            SourceResolutionIndex sourceIndex)
+            SourceResolutionIndex sourceIndex,
+            SelectAliasResolutionIndex? selectAliasIndex = null)
         {
             return columnReferences
-                .Select(columnReference => ResolveColumnReference(columnReference, sourceIndex))
+                .Select(columnReference => ResolveColumnReference(columnReference, sourceIndex, selectAliasIndex))
                 .ToArray();
         }
 
         /// <summary>
-        /// 列参照 1 件をソースへ解決する。
+        /// 列参照 1 件をソースまたは SELECT 別名へ解決する。
         /// </summary>
         private static ColumnReferenceAnalysis ResolveColumnReference(
             ColumnReferenceAnalysis columnReference,
-            SourceResolutionIndex sourceIndex)
+            SourceResolutionIndex sourceIndex,
+            SelectAliasResolutionIndex? selectAliasIndex = null)
         {
-            if (string.IsNullOrWhiteSpace(columnReference.Qualifier))
+            if (!string.IsNullOrWhiteSpace(columnReference.Qualifier))
             {
-                return columnReference with
-                {
-                    ResolutionStatus = ColumnReferenceResolutionStatus.Unresolved
-                };
+                return ResolveToSource(columnReference, sourceIndex.Resolve(columnReference.Qualifier));
             }
 
-            var candidates = sourceIndex.Resolve(columnReference.Qualifier);
+            if (selectAliasIndex is not null)
+            {
+                var aliasCandidates = selectAliasIndex.Resolve(columnReference.ColumnName);
+                if (aliasCandidates.Count > 1)
+                {
+                    return columnReference with
+                    {
+                        ResolutionStatus = ColumnReferenceResolutionStatus.Ambiguous
+                    };
+                }
+
+                if (aliasCandidates.Count == 1)
+                {
+                    return ResolveToSelectAlias(columnReference, aliasCandidates[0]);
+                }
+            }
+
+            return ResolveToSource(columnReference, sourceIndex.ResolveUnqualified(columnReference.ColumnName));
+        }
+
+        /// <summary>
+        /// 解決候補がソースの場合の列参照モデルを作る。
+        /// </summary>
+        private static ColumnReferenceAnalysis ResolveToSource(
+            ColumnReferenceAnalysis columnReference,
+            IReadOnlyList<SourceAnalysis> candidates)
+        {
             if (candidates.Count == 0)
             {
                 return columnReference with
@@ -989,6 +1063,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             return columnReference with
             {
                 ResolutionStatus = ColumnReferenceResolutionStatus.Resolved,
+                ResolvedTargetKind = ColumnReferenceResolvedTargetKind.Source,
+                ResolvedTargetDisplayText = source.DisplayText,
                 ResolvedSourceDisplayText = source.DisplayText,
                 ResolvedSourceName = source.SourceName,
                 ResolvedSourceAlias = source.Alias,
@@ -997,25 +1073,82 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         }
 
         /// <summary>
+        /// ORDER BY の SELECT 項目別名解決結果を作る。
+        /// 元 SELECT 項目が 1 ソースだけを参照している場合は、そのソース情報も引き継ぐ。
+        /// </summary>
+        private static ColumnReferenceAnalysis ResolveToSelectAlias(
+            ColumnReferenceAnalysis columnReference,
+            SelectItemAnalysis selectItem)
+        {
+            var resolvedSources = selectItem.ColumnReferences
+                .Where(reference => reference.ResolutionStatus == ColumnReferenceResolutionStatus.Resolved
+                    && !string.IsNullOrWhiteSpace(reference.ResolvedSourceDisplayText))
+                .GroupBy(reference => reference.ResolvedSourceDisplayText!, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToArray();
+
+            if (resolvedSources.Length == 1)
+            {
+                var sourceReference = resolvedSources[0];
+                return columnReference with
+                {
+                    ResolutionStatus = ColumnReferenceResolutionStatus.Resolved,
+                    ResolvedTargetKind = ColumnReferenceResolvedTargetKind.SelectAlias,
+                    ResolvedTargetDisplayText = $"SELECT別名 {selectItem.Alias}: {selectItem.ExpressionText}",
+                    ResolvedSelectItemAlias = selectItem.Alias,
+                    ResolvedSourceDisplayText = sourceReference.ResolvedSourceDisplayText,
+                    ResolvedSourceName = sourceReference.ResolvedSourceName,
+                    ResolvedSourceAlias = sourceReference.ResolvedSourceAlias,
+                    ResolvedSourceKind = sourceReference.ResolvedSourceKind
+                };
+            }
+
+            return columnReference with
+            {
+                ResolutionStatus = ColumnReferenceResolutionStatus.Resolved,
+                ResolvedTargetKind = ColumnReferenceResolvedTargetKind.SelectAlias,
+                ResolvedTargetDisplayText = $"SELECT別名 {selectItem.Alias}: {selectItem.ExpressionText}",
+                ResolvedSelectItemAlias = selectItem.Alias
+            };
+        }
+
+        /// <summary>
         /// 解決対象となるソースを索引へ追加する。
         /// 別名、完全名、末尾名をキーとして登録する。
         /// </summary>
-        private static void AddSourceToIndex(IDictionary<string, List<SourceAnalysis>> entries, SourceAnalysis? source)
+        private static void AddSourceToIndex(
+            IDictionary<string, List<SourceAnalysis>> entries,
+            IDictionary<string, List<SourceAnalysis>> explicitColumnEntries,
+            ICollection<SourceAnalysis> sources,
+            SourceAnalysis? source)
         {
             if (source is null)
             {
                 return;
             }
 
+            sources.Add(source);
+
             foreach (var key in EnumerateSourceKeys(source))
             {
-                if (!entries.TryGetValue(key, out var sources))
+                if (!entries.TryGetValue(key, out var matchedSources))
                 {
-                    sources = [];
-                    entries[key] = sources;
+                    matchedSources = [];
+                    entries[key] = matchedSources;
                 }
 
-                sources.Add(source);
+                matchedSources.Add(source);
+            }
+
+            foreach (var columnName in source.ExposedColumnNames)
+            {
+                if (!explicitColumnEntries.TryGetValue(columnName, out var matchedSources))
+                {
+                    matchedSources = [];
+                    explicitColumnEntries[columnName] = matchedSources;
+                }
+
+                matchedSources.Add(source);
             }
         }
 
@@ -1043,6 +1176,77 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             }
 
             return keys;
+        }
+
+        /// <summary>
+        /// CTE 名から、その CTE が公開している列名一覧を返す。
+        /// 解析済み定義がなければ空配列にする。
+        /// </summary>
+        private string[] ResolveCommonTableExpressionColumns(string sourceName)
+        {
+            return _commonTableExpressionRegistry.TryGetValue(sourceName, out var commonTableExpression)
+                ? commonTableExpression.ColumnNames
+                    .Where(columnName => !string.IsNullOrWhiteSpace(columnName))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray()
+                : [];
+        }
+
+        /// <summary>
+        /// クエリ式が外側へ公開する列名一覧を返す。
+        /// ワイルドカードが含まれる場合は安全側で空配列にする。
+        /// </summary>
+        private static string[] ExtractExposedColumnNames(QueryExpressionAnalysis query)
+        {
+            return query switch
+            {
+                SelectQueryAnalysis selectQuery => ExtractSelectExposedColumnNames(selectQuery),
+                SetOperationQueryAnalysis setOperationQuery => ExtractExposedColumnNames(setOperationQuery.LeftQuery),
+                _ => []
+            };
+        }
+
+        /// <summary>
+        /// SELECT 文の出力列名を抽出する。
+        /// 項目名を確定できない式が混ざる場合は、その項目だけ除外する。
+        /// </summary>
+        private static string[] ExtractSelectExposedColumnNames(SelectQueryAnalysis query)
+        {
+            if (query.SelectItems.Any(selectItem => selectItem.Kind == SelectItemKind.Wildcard))
+            {
+                return [];
+            }
+
+            return query.SelectItems
+                .Select(TryGetSelectOutputColumnName)
+                .Where(columnName => !string.IsNullOrWhiteSpace(columnName))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray()!;
+        }
+
+        /// <summary>
+        /// SELECT 項目から外側へ見える列名を推定する。
+        /// 別名を優先し、単純な列参照なら列名を引き継ぐ。
+        /// </summary>
+        private static string? TryGetSelectOutputColumnName(SelectItemAnalysis selectItem)
+        {
+            if (!string.IsNullOrWhiteSpace(selectItem.Alias))
+            {
+                return selectItem.Alias;
+            }
+
+            if (selectItem.Kind != SelectItemKind.Expression)
+            {
+                return null;
+            }
+
+            if (selectItem.ColumnReferences.Count == 1
+                && string.Equals(selectItem.ExpressionText, selectItem.ColumnReferences[0].DisplayText, StringComparison.OrdinalIgnoreCase))
+            {
+                return selectItem.ColumnReferences[0].ColumnName;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -1161,13 +1365,19 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             if (tableReference is QueryDerivedTable derivedTable)
             {
                 var nestedQuery = AnalyzeQueryExpression(derivedTable.QueryExpression);
+                var explicitColumnNames = derivedTable.Columns?.Select(column => column.Value).ToArray() ?? [];
                 var source = new SourceAnalysis(
                     _textExtractor.Normalize(tableReference),
                     nestedQuery,
                     SourceKind.DerivedTable,
                     null,
                     NormalizeAlias(derivedTable.Alias),
-                    CreateTextSpan(tableReference));
+                    CreateTextSpan(tableReference))
+                {
+                    ExposedColumnNames = explicitColumnNames.Length > 0
+                        ? explicitColumnNames
+                        : ExtractExposedColumnNames(nestedQuery)
+                };
                 var subquery = new SubqueryAnalysis(
                     locationLabel,
                     _textExtractor.CreatePreview(derivedTable.QueryExpression),
@@ -1183,6 +1393,9 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 var sourceKind = IsCommonTableExpressionReference(namedTableReference.SchemaObject)
                     ? SourceKind.CommonTableExpressionReference
                     : SourceKind.Object;
+                var exposedColumnNames = sourceKind == SourceKind.CommonTableExpressionReference
+                    ? ResolveCommonTableExpressionColumns(sourceName)
+                    : [];
 
                 return new SourceAnalysisResult(
                     new SourceAnalysis(
@@ -1191,7 +1404,10 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                         sourceKind,
                         sourceName,
                         NormalizeAlias(namedTableReference.Alias),
-                        CreateTextSpan(tableReference)),
+                        CreateTextSpan(tableReference))
+                    {
+                        ExposedColumnNames = exposedColumnNames
+                    },
                     []);
             }
 
@@ -1549,15 +1765,49 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
 
         /// <summary>
         /// 別名やソース名からソース定義を引くための索引。
-        /// 1 つのキーに複数ソースがぶら下がる場合は曖昧解決として扱う。
+        /// 未修飾列では、単一ソース解決と明示列ベース解決もここで扱う。
         /// </summary>
         private sealed record SourceResolutionIndex(
-            IReadOnlyDictionary<string, List<SourceAnalysis>> Entries)
+            IReadOnlyDictionary<string, List<SourceAnalysis>> Entries,
+            IReadOnlyDictionary<string, List<SourceAnalysis>> ExplicitColumnEntries,
+            IReadOnlyList<SourceAnalysis> Sources)
         {
             public IReadOnlyList<SourceAnalysis> Resolve(string qualifier)
             {
                 return Entries.TryGetValue(qualifier, out var sources)
                     ? sources
+                    : [];
+            }
+
+            public IReadOnlyList<SourceAnalysis> ResolveUnqualified(string columnName)
+            {
+                if (Sources.Count == 1)
+                {
+                    return Sources;
+                }
+
+                if (Sources.Count == 0 || Sources.Any(source => source.ExposedColumnNames.Count == 0))
+                {
+                    return [];
+                }
+
+                return ExplicitColumnEntries.TryGetValue(columnName, out var sources)
+                    ? sources
+                    : [];
+            }
+        }
+
+        /// <summary>
+        /// SELECT 項目別名から元の SELECT 項目を引くための索引。
+        /// ORDER BY 別名解決専用に絞ることで責務を小さく保つ。
+        /// </summary>
+        private sealed record SelectAliasResolutionIndex(
+            IReadOnlyDictionary<string, List<SelectItemAnalysis>> Entries)
+        {
+            public IReadOnlyList<SelectItemAnalysis> Resolve(string alias)
+            {
+                return Entries.TryGetValue(alias, out var selectItems)
+                    ? selectItems
                     : [];
             }
         }

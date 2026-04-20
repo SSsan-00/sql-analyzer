@@ -89,6 +89,17 @@ public enum ColumnReferenceResolutionStatus
 }
 
 /// <summary>
+/// 列参照が何に解決したかの分類。
+/// 通常ソースだけでなく、ORDER BY の SELECT 別名解決も同じ器で扱えるようにする。
+/// </summary>
+public enum ColumnReferenceResolvedTargetKind
+{
+    None,
+    Source,
+    SelectAlias
+}
+
+/// <summary>
 /// 集合演算の種別。
 /// UNION と UNION ALL を分けて保持し、将来の差異表示に備える。
 /// </summary>
@@ -522,7 +533,10 @@ public sealed record SourceAnalysis(
     SourceKind SourceKind,
     string? SourceName,
     string? Alias = null,
-    TextSpan? SourceSpan = null);
+    TextSpan? SourceSpan = null)
+{
+    public IReadOnlyList<string> ExposedColumnNames { get; init; } = [];
+}
 
 /// <summary>
 /// JOIN の ON 条件を分割表示するための 1 条件分。
@@ -594,6 +608,9 @@ public sealed record ColumnReferenceAnalysis(
     TextSpan? SourceSpan = null)
 {
     public ColumnReferenceResolutionStatus ResolutionStatus { get; init; } = ColumnReferenceResolutionStatus.Unresolved;
+    public ColumnReferenceResolvedTargetKind ResolvedTargetKind { get; init; } = ColumnReferenceResolvedTargetKind.None;
+    public string? ResolvedTargetDisplayText { get; init; }
+    public string? ResolvedSelectItemAlias { get; init; }
     public string? ResolvedSourceDisplayText { get; init; }
     public string? ResolvedSourceName { get; init; }
     public string? ResolvedSourceAlias { get; init; }
