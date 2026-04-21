@@ -18,8 +18,10 @@ internal static class AnalysisTreeViewBinder
         try
         {
             treeView.Nodes.Clear();
-            treeView.Nodes.Add(CreateNode(root));
-            treeView.ExpandAll();
+            var rootNode = CreateNode(root);
+            treeView.Nodes.Add(rootNode);
+            ApplyInitialExpansion(rootNode, depth: 0);
+            treeView.SelectedNode = rootNode;
         }
         finally
         {
@@ -72,6 +74,27 @@ internal static class AnalysisTreeViewBinder
         }
 
         return node;
+    }
+
+    /// <summary>
+    /// 表示木の分類と深さに応じて初期展開状態を反映する。
+    /// 子ノード側にも展開状態を設定しておき、利用者が後から親を開いたときも読みやすい状態を保つ。
+    /// </summary>
+    private static void ApplyInitialExpansion(TreeNode treeNode, int depth)
+    {
+        foreach (TreeNode childNode in treeNode.Nodes)
+        {
+            ApplyInitialExpansion(childNode, depth + 1);
+        }
+
+        if (GetDisplayNode(treeNode) is { } displayNode
+            && DisplayTreeExpansionPolicy.ShouldExpand(displayNode, depth))
+        {
+            treeNode.Expand();
+            return;
+        }
+
+        treeNode.Collapse(ignoreChildren: false);
     }
 
     private static TreeNode? FindTreeNode(TreeNode currentNode, DisplayTreeNode targetNode)

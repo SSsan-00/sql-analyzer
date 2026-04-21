@@ -103,21 +103,36 @@ public partial class MainForm : Form
             || ReferenceEquals(resultTreeView.SelectedNode, e.Node);
         var baseFont = e.Node.NodeFont ?? resultTreeView.Font;
         using var drawFont = new Font(baseFont, baseFont.Style | visualStyle.FontStyle);
+        var rowBounds = new Rectangle(
+            e.Bounds.Left,
+            e.Bounds.Top,
+            Math.Max(0, resultTreeView.ClientSize.Width - e.Bounds.Left),
+            e.Bounds.Height);
 
         if (isSelected)
         {
-            var selectedBounds = new Rectangle(
-                e.Bounds.Left,
-                e.Bounds.Top,
-                Math.Max(0, resultTreeView.ClientSize.Width - e.Bounds.Left),
-                e.Bounds.Height);
             using var backgroundBrush = new SolidBrush(TreeSelectionBackColor);
-            e.Graphics.FillRectangle(backgroundBrush, selectedBounds);
+            e.Graphics.FillRectangle(backgroundBrush, rowBounds);
         }
         else
         {
-            using var backgroundBrush = new SolidBrush(resultTreeView.BackColor);
-            e.Graphics.FillRectangle(backgroundBrush, e.Bounds);
+            var backgroundColor = visualStyle.BackgroundColor.IsEmpty
+                ? resultTreeView.BackColor
+                : visualStyle.BackgroundColor;
+            var backgroundBounds = visualStyle.BackgroundColor.IsEmpty ? e.Bounds : rowBounds;
+            using var backgroundBrush = new SolidBrush(backgroundColor);
+            e.Graphics.FillRectangle(backgroundBrush, backgroundBounds);
+
+            if (!visualStyle.BackgroundColor.IsEmpty)
+            {
+                using var accentPen = new Pen(visualStyle.AccentColor, 2F);
+                e.Graphics.DrawLine(
+                    accentPen,
+                    e.Bounds.Left,
+                    e.Bounds.Top + 2,
+                    e.Bounds.Left,
+                    e.Bounds.Bottom - 2);
+            }
         }
 
         TextRenderer.DrawText(
