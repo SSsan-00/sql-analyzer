@@ -57,10 +57,13 @@ internal static class AnalysisTreeViewBinder
     /// </summary>
     private static TreeNode CreateNode(DisplayTreeNode source)
     {
+        var imageKey = TreeNodeVisualCatalog.GetImageKey(source.Kind);
         var node = new TreeNode(source.Text)
         {
             Tag = source,
-            ToolTipText = source.Text
+            ToolTipText = DisplayTreeNodeKindCatalog.BuildToolTip(source),
+            ImageKey = imageKey,
+            SelectedImageKey = imageKey
         };
 
         foreach (var child in source.Children)

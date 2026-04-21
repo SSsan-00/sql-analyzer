@@ -316,7 +316,7 @@ partial class MainForm
         // 
         // resultTreeView
         // 構造を追いやすいよう、階層表示を主役にする。
-        // SQL 入力欄側から連動選択されたときも強く見えるよう、選択行は独自描画する。
+        // SQL 入力欄側から連動選択されたときも強く見えるよう、分類別のアイコンと独自描画を使う。
         // 
         resultTreeView.Dock = DockStyle.Fill;
         resultTreeView.DrawMode = TreeViewDrawMode.OwnerDrawText;

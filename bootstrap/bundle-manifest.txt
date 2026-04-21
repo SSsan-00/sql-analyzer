@@ -10,6 +10,7 @@ src/TSqlAnalyzer.Application/Analysis/CommonTableExpressionDependencyAnalyzer.cs
 src/TSqlAnalyzer.Application/Analysis/ISqlQueryAnalyzer.cs
 src/TSqlAnalyzer.Application/Analysis/ScriptDomQueryAnalyzer.cs
 src/TSqlAnalyzer.Application/Presentation/DisplayTreeNode.cs
+src/TSqlAnalyzer.Application/Presentation/DisplayTreeNodeKindCatalog.cs
 src/TSqlAnalyzer.Application/Presentation/DisplayTreeNodeNavigator.cs
 src/TSqlAnalyzer.Application/Presentation/QueryAnalysisTreeBuilder.cs
 src/TSqlAnalyzer.Application/Services/IQueryAnalysisService.cs
@@ -19,3 +20,5 @@ src/TSqlAnalyzer.WinForms/Program.cs
 src/TSqlAnalyzer.WinForms/MainForm.cs
 src/TSqlAnalyzer.WinForms/MainForm.Designer.cs
 src/TSqlAnalyzer.WinForms/UI/AnalysisTreeViewBinder.cs
+src/TSqlAnalyzer.WinForms/UI/TreeNodeVisualCatalog.cs
+src/TSqlAnalyzer.WinForms/UI/TreeViewImageListFactory.cs

@@ -47,6 +47,40 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// 標準 TreeView の独自描画に必要な表示分類が、主要ノードへ付与されることを確認する。
+    /// UI の色分けは WinForms 側の責務だが、分類情報は表示モデル側で固定する。
+    /// </summary>
+    [Fact]
+    public void Build_ForStyledTree_AssignsRepresentativeKinds()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id,
+                               o.OrderNo
+                           FROM dbo.Users u
+                           INNER JOIN dbo.Orders o
+                               ON u.Id = o.UserId
+                           WHERE o.Amount > 0;
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedNodes = FlattenNodes(tree).ToArray();
+
+        Assert.Equal(DisplayTreeNodeKind.Root, tree.Kind);
+        Assert.Contains(flattenedNodes, node => node.Text == "主構造" && node.Kind == DisplayTreeNodeKind.Section);
+        Assert.Contains(flattenedNodes, node => node.Text == "取得項目" && node.Kind == DisplayTreeNodeKind.Section);
+        Assert.Contains(flattenedNodes, node => node.Text == "主テーブル" && node.Kind == DisplayTreeNodeKind.Source);
+        Assert.Contains(flattenedNodes, node => node.Text == "JOIN #1" && node.Kind == DisplayTreeNodeKind.Join);
+        Assert.Contains(flattenedNodes, node => node.Text == "ON条件" && node.Kind == DisplayTreeNodeKind.Join);
+        Assert.Contains(flattenedNodes, node => node.Text == "条件論理" && node.Kind == DisplayTreeNodeKind.Condition);
+        Assert.Contains(flattenedNodes, node => node.Text == "参照列" && node.Kind == DisplayTreeNodeKind.ColumnReference);
+    }
+
+    /// <summary>
     /// JOIN の ON 条件が複数ある場合、条件ごとに分割表示されることを確認する。
     /// </summary>
     [Fact]
@@ -840,6 +874,19 @@ public sealed class QueryAnalysisTreeBuilderTests
             foreach (var text in Flatten(child))
             {
                 yield return text;
+            }
+        }
+    }
+
+    private static IEnumerable<DisplayTreeNode> FlattenNodes(DisplayTreeNode node)
+    {
+        yield return node;
+
+        foreach (var child in node.Children)
+        {
+            foreach (var descendant in FlattenNodes(child))
+            {
+                yield return descendant;
             }
         }
     }

@@ -29,6 +29,16 @@ public partial class MainForm : Form
         _treeBuilder = treeBuilder;
 
         InitializeComponent();
+        ConfigureResultTreeViewVisuals();
+    }
+
+    /// <summary>
+    /// 解析結果 TreeView の見た目を初期化する。
+    /// 標準 TreeView の ImageList と独自描画だけを使い、外部 UI ライブラリには依存しない。
+    /// </summary>
+    private void ConfigureResultTreeViewVisuals()
+    {
+        resultTreeView.ImageList = TreeViewImageListFactory.Create(components);
     }
 
     /// <summary>
@@ -77,8 +87,8 @@ public partial class MainForm : Form
     }
 
     /// <summary>
-    /// 解析結果側の選択ノードを青く強調表示する。
-    /// 標準描画では TreeView がフォーカスを失ったときに薄い表示になるため、対応関係を追いやすい色で固定する。
+    /// 解析結果側のノードを表示分類に応じて描画する。
+    /// 標準 TreeView のまま外部依存を増やさず、色と太字で構造の違いを追いやすくする。
     /// </summary>
     private void ResultTreeView_DrawNode(object? sender, DrawTreeNodeEventArgs e)
     {
@@ -87,22 +97,36 @@ public partial class MainForm : Form
             return;
         }
 
-        if ((e.State & TreeNodeStates.Selected) != TreeNodeStates.Selected)
-        {
-            e.DrawDefault = true;
-            return;
-        }
+        var displayNode = AnalysisTreeViewBinder.GetDisplayNode(e.Node);
+        var visualStyle = TreeNodeVisualCatalog.GetStyle(displayNode?.Kind ?? DisplayTreeNodeKind.Detail);
+        var isSelected = ((e.State & TreeNodeStates.Selected) == TreeNodeStates.Selected)
+            || ReferenceEquals(resultTreeView.SelectedNode, e.Node);
+        var baseFont = e.Node.NodeFont ?? resultTreeView.Font;
+        using var drawFont = new Font(baseFont, baseFont.Style | visualStyle.FontStyle);
 
-        using var backgroundBrush = new SolidBrush(TreeSelectionBackColor);
-        e.Graphics.FillRectangle(backgroundBrush, e.Bounds);
+        if (isSelected)
+        {
+            var selectedBounds = new Rectangle(
+                e.Bounds.Left,
+                e.Bounds.Top,
+                Math.Max(0, resultTreeView.ClientSize.Width - e.Bounds.Left),
+                e.Bounds.Height);
+            using var backgroundBrush = new SolidBrush(TreeSelectionBackColor);
+            e.Graphics.FillRectangle(backgroundBrush, selectedBounds);
+        }
+        else
+        {
+            using var backgroundBrush = new SolidBrush(resultTreeView.BackColor);
+            e.Graphics.FillRectangle(backgroundBrush, e.Bounds);
+        }
 
         TextRenderer.DrawText(
             e.Graphics,
             e.Node.Text,
-            e.Node.NodeFont ?? resultTreeView.Font,
+            drawFont,
             e.Bounds,
-            TreeSelectionForeColor,
-            TextFormatFlags.NoPadding | TextFormatFlags.VerticalCenter);
+            isSelected ? TreeSelectionForeColor : visualStyle.ForeColor,
+            TextFormatFlags.NoPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 
     /// <summary>

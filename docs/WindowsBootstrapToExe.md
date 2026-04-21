@@ -240,6 +240,7 @@ INNER JOIN (
     GROUP BY i.UserId
 ) invoice_total
     ON ro.UserId = invoice_total.UserId
+   AND invoice_total.TotalAmount > 0
 WHERE EXISTS (
     SELECT 1
     FROM dbo.Payments p
@@ -257,6 +258,7 @@ WHERE EXISTS (
 - `共通テーブル式` 配下に `依存順` が表示される
 - `結合` 配下に `JOIN #1` が表示される
 - `結合` 配下の `ON条件` が `条件 #1` `条件 #2` のように分割表示される
+- TreeView の主要ノードが分類ごとに色分けされ、見出しや JOIN などが太字とアイコンで表示される
 - `結合先の内部構造` が表示される
 - `取得項目` 配下に `別名` が表示される
 - `取得項目` 配下にワイルドカード項目の修飾子が表示される
