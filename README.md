@@ -58,8 +58,10 @@
 - TreeView 表示用の UI 非依存モデルへ変換できる
 - 標準 TreeView を外部依存なしで拡張し、主要ノードを分類別の色、背景色、太字、アイコンで表示できる
 - TreeView の初期展開を制御し、主要構造を開きつつ参照列などの詳細は必要時に展開できる
+- TreeView 内の検索、次候補移動、絞り込み表示ができる
+- TreeView 上で `Ctrl+F`、`F3`、`Shift+F3` による検索操作ができる
 - SQL 入力欄で `Ctrl+F` による検索ができる
-- 解析結果の選択対象に対応する SQL 断片を相互ハイライトできる
+- 解析結果の選択対象に対応する SQL 断片を選択と背景色で相互ハイライトできる
 - TreeView で選択したノードの全文を下部ペインで確認できる
 
 ## この初期版でまだ未対応のこと
@@ -305,6 +307,8 @@ ORDER BY u.Id;
 - `結合` 配下の `ON条件` が `条件 #1` `条件 #2` のように分割表示される
 - TreeView の主要ノードが分類ごとに色分けされ、見出しや JOIN などが背景色、太字、アイコンで表示される
 - TreeView は主要構造が初期展開され、参照列などの詳細は必要に応じて開ける
+- TreeView 検索欄で `JOIN` やテーブル名を検索し、次候補移動や絞り込みができる
+- TreeView 上で `Ctrl+F` を押すとツリー検索欄へ移動し、`F3` / `Shift+F3` で一致ノードを移動できる
 - `抽出条件` 配下に `条件論理` が出る
 - `条件論理` 配下に `EXISTS` `NOT EXISTS` `IN` `NOT IN` が構造として出る
 - `条件論理` 配下に `範囲: NOT BETWEEN` や `LIKE: NOT LIKE` が出る
@@ -313,6 +317,7 @@ ORDER BY u.Id;
 - `サブクエリ` 配下に WHERE 句由来のサブクエリが出る
 - 右下の `全文表示` に選択ノードの SQL 全文が出る
 - SQL 入力欄で選択した位置に応じて TreeView の選択が移動する
+- TreeView で選択したノードに対応する SQL 断片が、選択と淡い背景色で強調される
 
 ## ビルド成果物作成手順
 
@@ -387,7 +392,10 @@ dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.c
 - `src/TSqlAnalyzer.Application/Analysis/CommonTableExpressionDependencyAnalyzer.cs`
 - `src/TSqlAnalyzer.Application/Analysis/ScriptDomQueryAnalyzer.cs`
 - `src/TSqlAnalyzer.Application/Presentation/DisplayTreeNode.cs`
+- `src/TSqlAnalyzer.Application/Presentation/DisplayTreeExpansionPolicy.cs`
+- `src/TSqlAnalyzer.Application/Presentation/DisplayTreeNodeKindCatalog.cs`
 - `src/TSqlAnalyzer.Application/Presentation/DisplayTreeNodeNavigator.cs`
+- `src/TSqlAnalyzer.Application/Presentation/DisplayTreeSearch.cs`
 - `src/TSqlAnalyzer.Application/Presentation/QueryAnalysisTreeBuilder.cs`
 - `src/TSqlAnalyzer.Application/Services/IQueryAnalysisService.cs`
 - `src/TSqlAnalyzer.Application/Services/QueryAnalysisService.cs`
@@ -396,14 +404,19 @@ dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.c
 - `src/TSqlAnalyzer.WinForms/MainForm.cs`
 - `src/TSqlAnalyzer.WinForms/MainForm.Designer.cs`
 - `src/TSqlAnalyzer.WinForms/UI/AnalysisTreeViewBinder.cs`
+- `src/TSqlAnalyzer.WinForms/UI/TreeNodeVisualCatalog.cs`
+- `src/TSqlAnalyzer.WinForms/UI/TreeViewImageListFactory.cs`
 
 ### 開発端末での test に追加で必要
 
 - `TSqlAnalyzer.slnx`
 - `tests/TSqlAnalyzer.Tests/TSqlAnalyzer.Tests.csproj`
 - `tests/TSqlAnalyzer.Tests/Analysis/QueryAnalysisServiceTests.cs`
+- `tests/TSqlAnalyzer.Tests/Presentation/DisplayTreeExpansionPolicyTests.cs`
+- `tests/TSqlAnalyzer.Tests/Presentation/DisplayTreeNodeKindCatalogTests.cs`
 - `tests/TSqlAnalyzer.Tests/Presentation/QueryAnalysisTreeBuilderTests.cs`
 - `tests/TSqlAnalyzer.Tests/Presentation/DisplayTreeNodeNavigatorTests.cs`
+- `tests/TSqlAnalyzer.Tests/Presentation/DisplayTreeSearchTests.cs`
 
 ## テスト方針
 

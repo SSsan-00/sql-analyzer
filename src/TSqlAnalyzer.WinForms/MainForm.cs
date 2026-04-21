@@ -12,13 +12,21 @@ public partial class MainForm : Form
 {
     private static readonly Color TreeSelectionBackColor = Color.FromArgb(0, 102, 204);
     private static readonly Color TreeSelectionForeColor = Color.White;
+    private static readonly Color TreeSearchBackColor = Color.FromArgb(255, 248, 190);
+    private static readonly Color TreeSearchAccentColor = Color.FromArgb(230, 145, 30);
+    private static readonly Color SqlLinkedHighlightBackColor = Color.FromArgb(255, 243, 150);
 
     private readonly IQueryAnalysisService _analysisService;
     private readonly QueryAnalysisTreeBuilder _treeBuilder;
 
     private DisplayTreeNode? _currentTree;
+    private DisplayTreeNode? _displayedTree;
+    private TextSpan? _highlightedSqlSpan;
+    private string _treeSearchText = string.Empty;
+    private bool _isTreeFilterActive;
     private bool _suppressSqlSelectionSync;
     private bool _suppressTreeSelectionSync;
+    private bool _suppressTreeSearchTextChanged;
 
     /// <summary>
     /// 必要なサービスを受け取って初期化する。
@@ -51,6 +59,20 @@ public partial class MainForm : Form
         var tree = _treeBuilder.Build(analysis);
 
         _currentTree = tree;
+        _displayedTree = tree;
+        _isTreeFilterActive = false;
+        _treeSearchText = string.Empty;
+        _suppressTreeSearchTextChanged = true;
+        try
+        {
+            resultSearchTextBox.Clear();
+        }
+        finally
+        {
+            _suppressTreeSearchTextChanged = false;
+        }
+
+        ClearSqlLinkedHighlight();
         AnalysisTreeViewBinder.Bind(resultTreeView, tree);
         UpdateDetailText(resultTreeView.SelectedNode);
         SyncTreeSelectionFromSql();
@@ -62,10 +84,15 @@ public partial class MainForm : Form
     private void ClearButton_Click(object? sender, EventArgs e)
     {
         _currentTree = null;
+        _displayedTree = null;
+        _isTreeFilterActive = false;
+        _treeSearchText = string.Empty;
+        _highlightedSqlSpan = null;
         sqlTextBox.Clear();
         resultTreeView.Nodes.Clear();
         detailTextBox.Clear();
         findTextBox.Clear();
+        resultSearchTextBox.Clear();
         findPanel.Visible = false;
         sqlTextBox.Focus();
     }
@@ -99,6 +126,7 @@ public partial class MainForm : Form
 
         var displayNode = AnalysisTreeViewBinder.GetDisplayNode(e.Node);
         var visualStyle = TreeNodeVisualCatalog.GetStyle(displayNode?.Kind ?? DisplayTreeNodeKind.Detail);
+        var isSearchMatch = displayNode is not null && DisplayTreeSearch.IsMatch(displayNode, _treeSearchText);
         var isSelected = ((e.State & TreeNodeStates.Selected) == TreeNodeStates.Selected)
             || ReferenceEquals(resultTreeView.SelectedNode, e.Node);
         var baseFont = e.Node.NodeFont ?? resultTreeView.Font;
@@ -116,14 +144,26 @@ public partial class MainForm : Form
         }
         else
         {
-            var backgroundColor = visualStyle.BackgroundColor.IsEmpty
-                ? resultTreeView.BackColor
-                : visualStyle.BackgroundColor;
-            var backgroundBounds = visualStyle.BackgroundColor.IsEmpty ? e.Bounds : rowBounds;
+            var backgroundColor = isSearchMatch
+                ? TreeSearchBackColor
+                : (visualStyle.BackgroundColor.IsEmpty
+                    ? resultTreeView.BackColor
+                    : visualStyle.BackgroundColor);
+            var backgroundBounds = isSearchMatch || !visualStyle.BackgroundColor.IsEmpty ? rowBounds : e.Bounds;
             using var backgroundBrush = new SolidBrush(backgroundColor);
             e.Graphics.FillRectangle(backgroundBrush, backgroundBounds);
 
-            if (!visualStyle.BackgroundColor.IsEmpty)
+            if (isSearchMatch)
+            {
+                using var searchPen = new Pen(TreeSearchAccentColor, 3F);
+                e.Graphics.DrawLine(
+                    searchPen,
+                    e.Bounds.Left,
+                    e.Bounds.Top + 2,
+                    e.Bounds.Left,
+                    e.Bounds.Bottom - 2);
+            }
+            else if (!visualStyle.BackgroundColor.IsEmpty)
             {
                 using var accentPen = new Pen(visualStyle.AccentColor, 2F);
                 e.Graphics.DrawLine(
@@ -142,6 +182,206 @@ public partial class MainForm : Form
             e.Bounds,
             isSelected ? TreeSelectionForeColor : visualStyle.ForeColor,
             TextFormatFlags.NoPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+
+    /// <summary>
+    /// TreeView 検索語の変更に合わせて、検索ハイライトまたはフィルタ結果を更新する。
+    /// </summary>
+    private void ResultSearchTextBox_TextChanged(object? sender, EventArgs e)
+    {
+        if (_suppressTreeSearchTextChanged)
+        {
+            return;
+        }
+
+        _treeSearchText = resultSearchTextBox.Text.Trim();
+
+        if (_isTreeFilterActive)
+        {
+            ApplyTreeFilter();
+            return;
+        }
+
+        resultTreeView.Invalidate();
+    }
+
+    /// <summary>
+    /// TreeView 検索欄では Enter / Shift+Enter / Escape をショートカットとして扱う。
+    /// </summary>
+    private void ResultSearchTextBox_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Enter)
+        {
+            SelectNextTreeSearchMatch(reverse: e.Shift);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.Escape)
+        {
+            ResetTreeFilterAndSearch();
+            e.SuppressKeyPress = true;
+        }
+    }
+
+    /// <summary>
+    /// TreeView 内の次の一致ノードへ移動する。
+    /// </summary>
+    private void ResultSearchNextButton_Click(object? sender, EventArgs e)
+    {
+        SelectNextTreeSearchMatch(reverse: false);
+    }
+
+    /// <summary>
+    /// TreeView 内の前の一致ノードへ移動する。
+    /// </summary>
+    private void ResultSearchPreviousButton_Click(object? sender, EventArgs e)
+    {
+        SelectNextTreeSearchMatch(reverse: true);
+    }
+
+    /// <summary>
+    /// 検索語に一致するノードと祖先だけを TreeView に表示する。
+    /// </summary>
+    private void ResultFilterButton_Click(object? sender, EventArgs e)
+    {
+        _treeSearchText = resultSearchTextBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(_treeSearchText))
+        {
+            resultSearchTextBox.Focus();
+            return;
+        }
+
+        _isTreeFilterActive = true;
+        ApplyTreeFilter();
+    }
+
+    /// <summary>
+    /// TreeView の検索語と絞り込みを解除する。
+    /// </summary>
+    private void ResultFilterClearButton_Click(object? sender, EventArgs e)
+    {
+        ResetTreeFilterAndSearch();
+    }
+
+    /// <summary>
+    /// TreeView 上のショートカットを扱う。
+    /// Ctrl+F でツリー検索欄へ移動し、F3 / Shift+F3 で一致ノードを前後に辿る。
+    /// </summary>
+    private void ResultTreeView_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Control && e.KeyCode == Keys.F)
+        {
+            resultSearchTextBox.Focus();
+            resultSearchTextBox.SelectAll();
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.F3)
+        {
+            SelectNextTreeSearchMatch(reverse: e.Shift);
+            e.SuppressKeyPress = true;
+        }
+    }
+
+    /// <summary>
+    /// TreeView 検索語に一致する次または前のノードを選択する。
+    /// 選択したノードの SQL 断片も通常の TreeView 選択と同じ経路で強調表示する。
+    /// </summary>
+    private void SelectNextTreeSearchMatch(bool reverse)
+    {
+        _treeSearchText = resultSearchTextBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(_treeSearchText))
+        {
+            resultSearchTextBox.Focus();
+            return;
+        }
+
+        var matches = AnalysisTreeViewBinder.FindMatchingTreeNodes(resultTreeView, _treeSearchText);
+        if (matches.Count == 0)
+        {
+            resultTreeView.Invalidate();
+            return;
+        }
+
+        var currentIndex = resultTreeView.SelectedNode is null
+            ? -1
+            : matches
+                .Select((node, index) => new { node, index })
+                .FirstOrDefault(pair => ReferenceEquals(pair.node, resultTreeView.SelectedNode))
+                ?.index ?? -1;
+
+        var nextIndex = reverse
+            ? currentIndex <= 0 ? matches.Count - 1 : currentIndex - 1
+            : currentIndex < 0 || currentIndex >= matches.Count - 1 ? 0 : currentIndex + 1;
+
+        var nextNode = matches[nextIndex];
+        resultTreeView.SelectedNode = nextNode;
+        nextNode.EnsureVisible();
+        resultTreeView.Focus();
+        resultTreeView.Invalidate();
+    }
+
+    /// <summary>
+    /// 現在の検索語で TreeView を絞り込む。
+    /// 一致がない場合も専用ノードを表示し、空白画面にならないようにする。
+    /// </summary>
+    private void ApplyTreeFilter()
+    {
+        if (_currentTree is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_treeSearchText))
+        {
+            _displayedTree = _currentTree;
+            AnalysisTreeViewBinder.Bind(resultTreeView, _currentTree);
+            return;
+        }
+
+        var filteredTree = DisplayTreeSearch.Filter(_currentTree, _treeSearchText)
+            ?? new DisplayTreeNode(
+                $"検索結果なし: {_treeSearchText}",
+                [],
+                Kind: DisplayTreeNodeKind.Section);
+
+        _displayedTree = filteredTree;
+        AnalysisTreeViewBinder.Bind(resultTreeView, filteredTree, expandAll: true);
+        resultTreeView.Invalidate();
+    }
+
+    /// <summary>
+    /// TreeView 検索と絞り込みを解除し、元の解析結果ツリーへ戻す。
+    /// </summary>
+    private void ResetTreeFilterAndSearch()
+    {
+        _treeSearchText = string.Empty;
+        _isTreeFilterActive = false;
+        _suppressTreeSearchTextChanged = true;
+        try
+        {
+            resultSearchTextBox.Clear();
+        }
+        finally
+        {
+            _suppressTreeSearchTextChanged = false;
+        }
+
+        if (_currentTree is not null)
+        {
+            _displayedTree = _currentTree;
+            AnalysisTreeViewBinder.Bind(resultTreeView, _currentTree);
+            SyncTreeSelectionFromSql();
+        }
+        else
+        {
+            _displayedTree = null;
+            resultTreeView.Nodes.Clear();
+        }
+
+        resultTreeView.Invalidate();
     }
 
     /// <summary>
@@ -217,14 +457,15 @@ public partial class MainForm : Form
     /// </summary>
     private void SyncTreeSelectionFromSql()
     {
-        if (_currentTree is null)
+        var treeForSelection = _displayedTree ?? _currentTree;
+        if (treeForSelection is null)
         {
             UpdateDetailTextForSelection();
             return;
         }
 
         var match = DisplayTreeNodeNavigator.FindBestMatch(
-            _currentTree,
+            treeForSelection,
             sqlTextBox.SelectionStart,
             sqlTextBox.SelectionLength);
 
@@ -265,17 +506,22 @@ public partial class MainForm : Form
     {
         if (sourceSpan is null)
         {
+            ClearSqlLinkedHighlight();
             return;
         }
 
         if (!TryClampSpan(sourceSpan, out var clampedSpan))
         {
+            ClearSqlLinkedHighlight();
             return;
         }
 
         _suppressSqlSelectionSync = true;
         try
         {
+            ClearSqlLinkedHighlightCore();
+            ApplySqlLinkedHighlight(clampedSpan);
+            _highlightedSqlSpan = clampedSpan;
             sqlTextBox.Select(clampedSpan.Start, clampedSpan.Length);
             sqlTextBox.ScrollToCaret();
         }
@@ -283,6 +529,61 @@ public partial class MainForm : Form
         {
             _suppressSqlSelectionSync = false;
         }
+    }
+
+    /// <summary>
+    /// SQL 側に残っている TreeView 連動ハイライトを消す。
+    /// 解析し直しや TreeView の非 SQL ノード選択時に、古い対応箇所が残らないようにする。
+    /// </summary>
+    private void ClearSqlLinkedHighlight()
+    {
+        _suppressSqlSelectionSync = true;
+        try
+        {
+            ClearSqlLinkedHighlightCore();
+        }
+        finally
+        {
+            _suppressSqlSelectionSync = false;
+        }
+    }
+
+    /// <summary>
+    /// 選択状態を保ちながら、前回の SQL 背景ハイライトを解除する。
+    /// </summary>
+    private void ClearSqlLinkedHighlightCore()
+    {
+        if (_highlightedSqlSpan is null)
+        {
+            return;
+        }
+
+        var originalSelectionStart = sqlTextBox.SelectionStart;
+        var originalSelectionLength = sqlTextBox.SelectionLength;
+
+        if (TryClampSpan(_highlightedSqlSpan, out var clampedSpan))
+        {
+            sqlTextBox.Select(clampedSpan.Start, clampedSpan.Length);
+            sqlTextBox.SelectionBackColor = sqlTextBox.BackColor;
+        }
+
+        _highlightedSqlSpan = null;
+
+        if (originalSelectionStart >= 0 && originalSelectionStart <= sqlTextBox.TextLength)
+        {
+            var safeLength = Math.Min(originalSelectionLength, sqlTextBox.TextLength - originalSelectionStart);
+            sqlTextBox.Select(originalSelectionStart, Math.Max(0, safeLength));
+        }
+    }
+
+    /// <summary>
+    /// TreeView 選択に対応する SQL 範囲へ淡い背景色を付ける。
+    /// 選択色だけに頼らず、TreeView から戻ったときも対応箇所を見つけやすくする。
+    /// </summary>
+    private void ApplySqlLinkedHighlight(TextSpan sourceSpan)
+    {
+        sqlTextBox.Select(sourceSpan.Start, sourceSpan.Length);
+        sqlTextBox.SelectionBackColor = SqlLinkedHighlightBackColor;
     }
 
     /// <summary>

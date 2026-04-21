@@ -13,6 +13,7 @@ src/TSqlAnalyzer.Application/Presentation/DisplayTreeNode.cs
 src/TSqlAnalyzer.Application/Presentation/DisplayTreeExpansionPolicy.cs
 src/TSqlAnalyzer.Application/Presentation/DisplayTreeNodeKindCatalog.cs
 src/TSqlAnalyzer.Application/Presentation/DisplayTreeNodeNavigator.cs
+src/TSqlAnalyzer.Application/Presentation/DisplayTreeSearch.cs
 src/TSqlAnalyzer.Application/Presentation/QueryAnalysisTreeBuilder.cs
 src/TSqlAnalyzer.Application/Services/IQueryAnalysisService.cs
 src/TSqlAnalyzer.Application/Services/QueryAnalysisService.cs

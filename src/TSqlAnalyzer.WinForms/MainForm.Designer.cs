@@ -16,11 +16,18 @@ partial class MainForm
     private Label detailLabel = null!;
     private SplitContainer mainSplitContainer = null!;
     private FlowLayoutPanel findPanel = null!;
+    private FlowLayoutPanel resultSearchPanel = null!;
     private Label findLabel = null!;
+    private Label resultSearchLabel = null!;
     private TextBox findTextBox = null!;
+    private TextBox resultSearchTextBox = null!;
     private Button findNextButton = null!;
     private Button findPreviousButton = null!;
     private Button closeFindButton = null!;
+    private Button resultSearchNextButton = null!;
+    private Button resultSearchPreviousButton = null!;
+    private Button resultFilterButton = null!;
+    private Button resultFilterClearButton = null!;
     private Button analyzeButton = null!;
     private Button clearButton = null!;
     private RichTextBox sqlTextBox = null!;
@@ -60,6 +67,13 @@ partial class MainForm
         findPreviousButton = new Button();
         closeFindButton = new Button();
         inputLabel = new Label();
+        resultSearchPanel = new FlowLayoutPanel();
+        resultSearchLabel = new Label();
+        resultSearchTextBox = new TextBox();
+        resultSearchNextButton = new Button();
+        resultSearchPreviousButton = new Button();
+        resultFilterButton = new Button();
+        resultFilterClearButton = new Button();
         resultTreeView = new TreeView();
         resultDetailPanel = new Panel();
         detailTextBox = new RichTextBox();
@@ -72,12 +86,13 @@ partial class MainForm
         mainSplitContainer.Panel2.SuspendLayout();
         mainSplitContainer.SuspendLayout();
         findPanel.SuspendLayout();
+        resultSearchPanel.SuspendLayout();
         resultDetailPanel.SuspendLayout();
         SuspendLayout();
-        // 
+        //
         // mainLayoutPanel
         // 画面全体を縦方向に「ボタン領域」と「本文領域」に分ける。
-        // 
+        //
         mainLayoutPanel.ColumnCount = 1;
         mainLayoutPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         mainLayoutPanel.Controls.Add(buttonPanel, 0, 0);
@@ -90,10 +105,10 @@ partial class MainForm
         mainLayoutPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
         mainLayoutPanel.Size = new Size(1280, 760);
         mainLayoutPanel.TabIndex = 0;
-        // 
+        //
         // buttonPanel
         // 操作ボタンを左寄せで並べる。
-        // 
+        //
         buttonPanel.AutoSize = true;
         buttonPanel.Controls.Add(analyzeButton);
         buttonPanel.Controls.Add(clearButton);
@@ -103,10 +118,10 @@ partial class MainForm
         buttonPanel.Name = "buttonPanel";
         buttonPanel.Size = new Size(1256, 41);
         buttonPanel.TabIndex = 0;
-        // 
+        //
         // analyzeButton
         // 入力 SQL を解析して TreeView へ反映する。
-        // 
+        //
         analyzeButton.AutoSize = true;
         analyzeButton.Location = new Point(0, 0);
         analyzeButton.Margin = new Padding(0, 0, 8, 0);
@@ -117,10 +132,10 @@ partial class MainForm
         analyzeButton.Text = "解析";
         analyzeButton.UseVisualStyleBackColor = true;
         analyzeButton.Click += AnalyzeButton_Click;
-        // 
+        //
         // clearButton
         // 入力と解析結果をまとめて消去する。
-        // 
+        //
         clearButton.AutoSize = true;
         clearButton.Location = new Point(90, 0);
         clearButton.Margin = new Padding(0);
@@ -131,35 +146,36 @@ partial class MainForm
         clearButton.Text = "クリア";
         clearButton.UseVisualStyleBackColor = true;
         clearButton.Click += ClearButton_Click;
-        // 
+        //
         // mainSplitContainer
         // 左に入力欄、右に解析結果と全文表示を配置する。
-        // 
+        //
         mainSplitContainer.Dock = DockStyle.Fill;
         mainSplitContainer.Location = new Point(12, 61);
         mainSplitContainer.Margin = new Padding(12, 0, 12, 12);
         mainSplitContainer.Name = "mainSplitContainer";
-        // 
+        //
         // mainSplitContainer.Panel1
-        // 
+        //
         mainSplitContainer.Panel1.Controls.Add(sqlTextBox);
         mainSplitContainer.Panel1.Controls.Add(findPanel);
         mainSplitContainer.Panel1.Controls.Add(inputLabel);
         mainSplitContainer.Panel1.Padding = new Padding(0, 0, 8, 0);
-        // 
+        //
         // mainSplitContainer.Panel2
-        // 
+        //
         mainSplitContainer.Panel2.Controls.Add(resultTreeView);
         mainSplitContainer.Panel2.Controls.Add(resultDetailPanel);
+        mainSplitContainer.Panel2.Controls.Add(resultSearchPanel);
         mainSplitContainer.Panel2.Controls.Add(resultLabel);
         mainSplitContainer.Panel2.Padding = new Padding(8, 0, 0, 0);
         mainSplitContainer.Size = new Size(1256, 687);
         mainSplitContainer.SplitterDistance = 610;
         mainSplitContainer.TabIndex = 1;
-        // 
+        //
         // inputLabel
         // 入力欄の説明ラベル。
-        // 
+        //
         inputLabel.AutoSize = true;
         inputLabel.Dock = DockStyle.Top;
         inputLabel.Location = new Point(0, 0);
@@ -169,10 +185,10 @@ partial class MainForm
         inputLabel.Size = new Size(104, 31);
         inputLabel.TabIndex = 0;
         inputLabel.Text = "T-SQLクエリ";
-        // 
+        //
         // findPanel
         // Ctrl+F で表示する検索バー。
-        // 
+        //
         findPanel.AutoSize = true;
         findPanel.Controls.Add(findLabel);
         findPanel.Controls.Add(findTextBox);
@@ -187,10 +203,10 @@ partial class MainForm
         findPanel.Size = new Size(602, 39);
         findPanel.TabIndex = 1;
         findPanel.Visible = false;
-        // 
+        //
         // findLabel
         // 検索欄の説明ラベル。
-        // 
+        //
         findLabel.AutoSize = true;
         findLabel.Location = new Point(0, 0);
         findLabel.Margin = new Padding(0, 7, 8, 0);
@@ -198,19 +214,19 @@ partial class MainForm
         findLabel.Size = new Size(31, 15);
         findLabel.TabIndex = 0;
         findLabel.Text = "検索";
-        // 
+        //
         // findTextBox
         // 検索文字列入力欄。
-        // 
+        //
         findTextBox.Location = new Point(39, 3);
         findTextBox.Name = "findTextBox";
         findTextBox.Size = new Size(220, 23);
         findTextBox.TabIndex = 1;
         findTextBox.KeyDown += FindTextBox_KeyDown;
-        // 
+        //
         // findNextButton
         // 次の一致位置へ移動する。
-        // 
+        //
         findNextButton.AutoSize = true;
         findNextButton.Location = new Point(267, 0);
         findNextButton.Name = "findNextButton";
@@ -219,10 +235,10 @@ partial class MainForm
         findNextButton.Text = "次へ";
         findNextButton.UseVisualStyleBackColor = true;
         findNextButton.Click += FindNextButton_Click;
-        // 
+        //
         // findPreviousButton
         // 前の一致位置へ移動する。
-        // 
+        //
         findPreviousButton.AutoSize = true;
         findPreviousButton.Location = new Point(330, 0);
         findPreviousButton.Name = "findPreviousButton";
@@ -231,10 +247,10 @@ partial class MainForm
         findPreviousButton.Text = "前へ";
         findPreviousButton.UseVisualStyleBackColor = true;
         findPreviousButton.Click += FindPreviousButton_Click;
-        // 
+        //
         // closeFindButton
         // 検索バーを閉じる。
-        // 
+        //
         closeFindButton.AutoSize = true;
         closeFindButton.Location = new Point(393, 0);
         closeFindButton.Name = "closeFindButton";
@@ -243,11 +259,11 @@ partial class MainForm
         closeFindButton.Text = "閉じる";
         closeFindButton.UseVisualStyleBackColor = true;
         closeFindButton.Click += CloseFindButton_Click;
-        // 
+        //
         // sqlTextBox
         // 複数行の SQL 入力欄。
         // 選択範囲の追跡や強調表示を行うため RichTextBox を使う。
-        // 
+        //
         sqlTextBox.AcceptsTab = true;
         sqlTextBox.DetectUrls = false;
         sqlTextBox.Dock = DockStyle.Fill;
@@ -261,10 +277,10 @@ partial class MainForm
         sqlTextBox.WordWrap = false;
         sqlTextBox.SelectionChanged += SqlTextBox_SelectionChanged;
         sqlTextBox.KeyDown += SqlTextBox_KeyDown;
-        // 
+        //
         // resultLabel
         // 解析結果欄の説明ラベル。
-        // 
+        //
         resultLabel.AutoSize = true;
         resultLabel.Dock = DockStyle.Top;
         resultLabel.Location = new Point(8, 0);
@@ -274,10 +290,97 @@ partial class MainForm
         resultLabel.Size = new Size(76, 31);
         resultLabel.TabIndex = 0;
         resultLabel.Text = "解析結果";
-        // 
+        //
+        // resultSearchPanel
+        // TreeView 内の検索と絞り込みを行う操作バー。
+        //
+        resultSearchPanel.AutoSize = true;
+        resultSearchPanel.Controls.Add(resultSearchLabel);
+        resultSearchPanel.Controls.Add(resultSearchTextBox);
+        resultSearchPanel.Controls.Add(resultSearchNextButton);
+        resultSearchPanel.Controls.Add(resultSearchPreviousButton);
+        resultSearchPanel.Controls.Add(resultFilterButton);
+        resultSearchPanel.Controls.Add(resultFilterClearButton);
+        resultSearchPanel.Dock = DockStyle.Top;
+        resultSearchPanel.Location = new Point(8, 31);
+        resultSearchPanel.Margin = new Padding(0, 0, 0, 8);
+        resultSearchPanel.Name = "resultSearchPanel";
+        resultSearchPanel.Padding = new Padding(0, 0, 0, 8);
+        resultSearchPanel.Size = new Size(630, 39);
+        resultSearchPanel.TabIndex = 1;
+        //
+        // resultSearchLabel
+        // TreeView 検索欄の説明ラベル。
+        //
+        resultSearchLabel.AutoSize = true;
+        resultSearchLabel.Location = new Point(0, 0);
+        resultSearchLabel.Margin = new Padding(0, 7, 8, 0);
+        resultSearchLabel.Name = "resultSearchLabel";
+        resultSearchLabel.Size = new Size(67, 15);
+        resultSearchLabel.TabIndex = 0;
+        resultSearchLabel.Text = "ツリー検索";
+        //
+        // resultSearchTextBox
+        // TreeView 内で探す文字列を入力する。
+        //
+        resultSearchTextBox.Location = new Point(75, 3);
+        resultSearchTextBox.Name = "resultSearchTextBox";
+        resultSearchTextBox.Size = new Size(180, 23);
+        resultSearchTextBox.TabIndex = 1;
+        resultSearchTextBox.TextChanged += ResultSearchTextBox_TextChanged;
+        resultSearchTextBox.KeyDown += ResultSearchTextBox_KeyDown;
+        //
+        // resultSearchNextButton
+        // 次の一致ノードへ移動する。
+        //
+        resultSearchNextButton.AutoSize = true;
+        resultSearchNextButton.Location = new Point(261, 0);
+        resultSearchNextButton.Name = "resultSearchNextButton";
+        resultSearchNextButton.Size = new Size(57, 25);
+        resultSearchNextButton.TabIndex = 2;
+        resultSearchNextButton.Text = "次へ";
+        resultSearchNextButton.UseVisualStyleBackColor = true;
+        resultSearchNextButton.Click += ResultSearchNextButton_Click;
+        //
+        // resultSearchPreviousButton
+        // 前の一致ノードへ移動する。
+        //
+        resultSearchPreviousButton.AutoSize = true;
+        resultSearchPreviousButton.Location = new Point(324, 0);
+        resultSearchPreviousButton.Name = "resultSearchPreviousButton";
+        resultSearchPreviousButton.Size = new Size(57, 25);
+        resultSearchPreviousButton.TabIndex = 3;
+        resultSearchPreviousButton.Text = "前へ";
+        resultSearchPreviousButton.UseVisualStyleBackColor = true;
+        resultSearchPreviousButton.Click += ResultSearchPreviousButton_Click;
+        //
+        // resultFilterButton
+        // 検索語に一致するノードと祖先だけに TreeView を絞り込む。
+        //
+        resultFilterButton.AutoSize = true;
+        resultFilterButton.Location = new Point(387, 0);
+        resultFilterButton.Name = "resultFilterButton";
+        resultFilterButton.Size = new Size(57, 25);
+        resultFilterButton.TabIndex = 4;
+        resultFilterButton.Text = "絞込";
+        resultFilterButton.UseVisualStyleBackColor = true;
+        resultFilterButton.Click += ResultFilterButton_Click;
+        //
+        // resultFilterClearButton
+        // TreeView の絞り込みと検索語を解除する。
+        //
+        resultFilterClearButton.AutoSize = true;
+        resultFilterClearButton.Location = new Point(450, 0);
+        resultFilterClearButton.Name = "resultFilterClearButton";
+        resultFilterClearButton.Size = new Size(57, 25);
+        resultFilterClearButton.TabIndex = 5;
+        resultFilterClearButton.Text = "解除";
+        resultFilterClearButton.UseVisualStyleBackColor = true;
+        resultFilterClearButton.Click += ResultFilterClearButton_Click;
+        //
         // resultDetailPanel
         // 選択ノードや選択 SQL の全文表示欄。
-        // 
+        //
         resultDetailPanel.Controls.Add(detailTextBox);
         resultDetailPanel.Controls.Add(detailLabel);
         resultDetailPanel.Dock = DockStyle.Bottom;
@@ -286,10 +389,10 @@ partial class MainForm
         resultDetailPanel.Padding = new Padding(0, 8, 0, 0);
         resultDetailPanel.Size = new Size(630, 184);
         resultDetailPanel.TabIndex = 2;
-        // 
+        //
         // detailLabel
         // 全文表示欄の説明ラベル。
-        // 
+        //
         detailLabel.AutoSize = true;
         detailLabel.Dock = DockStyle.Top;
         detailLabel.Location = new Point(0, 8);
@@ -298,10 +401,10 @@ partial class MainForm
         detailLabel.Size = new Size(59, 23);
         detailLabel.TabIndex = 0;
         detailLabel.Text = "全文表示";
-        // 
+        //
         // detailTextBox
         // 選択対象の全文や対応 SQL を表示する。
-        // 
+        //
         detailTextBox.DetectUrls = false;
         detailTextBox.Dock = DockStyle.Fill;
         detailTextBox.Font = new Font("Consolas", 10F);
@@ -313,26 +416,27 @@ partial class MainForm
         detailTextBox.TabIndex = 1;
         detailTextBox.Text = "";
         detailTextBox.WordWrap = false;
-        // 
+        //
         // resultTreeView
         // 構造を追いやすいよう、階層表示を主役にする。
         // SQL 入力欄側から連動選択されたときも強く見えるよう、分類別のアイコンと独自描画を使う。
-        // 
+        //
         resultTreeView.Dock = DockStyle.Fill;
         resultTreeView.DrawMode = TreeViewDrawMode.OwnerDrawText;
         resultTreeView.FullRowSelect = true;
         resultTreeView.HideSelection = false;
-        resultTreeView.Location = new Point(8, 31);
+        resultTreeView.Location = new Point(8, 70);
         resultTreeView.Name = "resultTreeView";
         resultTreeView.ShowNodeToolTips = true;
-        resultTreeView.Size = new Size(630, 472);
-        resultTreeView.TabIndex = 1;
+        resultTreeView.Size = new Size(630, 433);
+        resultTreeView.TabIndex = 2;
         resultTreeView.AfterSelect += ResultTreeView_AfterSelect;
         resultTreeView.DrawNode += ResultTreeView_DrawNode;
-        // 
+        resultTreeView.KeyDown += ResultTreeView_KeyDown;
+        //
         // MainForm
         // シンプルな 2 ペイン構成を維持しつつ、検索と全文表示を足す。
-        // 
+        //
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
         ClientSize = new Size(1280, 760);
@@ -354,6 +458,8 @@ partial class MainForm
         mainSplitContainer.ResumeLayout(false);
         findPanel.ResumeLayout(false);
         findPanel.PerformLayout();
+        resultSearchPanel.ResumeLayout(false);
+        resultSearchPanel.PerformLayout();
         resultDetailPanel.ResumeLayout(false);
         resultDetailPanel.PerformLayout();
         ResumeLayout(false);

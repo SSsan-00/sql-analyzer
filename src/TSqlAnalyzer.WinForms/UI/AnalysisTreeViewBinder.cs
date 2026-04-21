@@ -11,7 +11,7 @@ internal static class AnalysisTreeViewBinder
     /// <summary>
     /// 表示木を TreeView に反映する。
     /// </summary>
-    public static void Bind(TreeView treeView, DisplayTreeNode root)
+    public static void Bind(TreeView treeView, DisplayTreeNode root, bool expandAll = false)
     {
         treeView.BeginUpdate();
 
@@ -20,7 +20,15 @@ internal static class AnalysisTreeViewBinder
             treeView.Nodes.Clear();
             var rootNode = CreateNode(root);
             treeView.Nodes.Add(rootNode);
-            ApplyInitialExpansion(rootNode, depth: 0);
+            if (expandAll)
+            {
+                rootNode.ExpandAll();
+            }
+            else
+            {
+                ApplyInitialExpansion(rootNode, depth: 0);
+            }
+
             treeView.SelectedNode = rootNode;
         }
         finally
@@ -52,6 +60,26 @@ internal static class AnalysisTreeViewBinder
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 現在 TreeView に表示されているノードから、検索語に一致するものを表示順で返す。
+    /// フィルタ中はフィルタ後の TreeNode 群だけを対象にする。
+    /// </summary>
+    public static IReadOnlyList<TreeNode> FindMatchingTreeNodes(TreeView treeView, string searchText)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            return [];
+        }
+
+        var matches = new List<TreeNode>();
+        foreach (TreeNode treeNode in treeView.Nodes)
+        {
+            CollectMatchingTreeNodes(treeNode, searchText, matches);
+        }
+
+        return matches;
     }
 
     /// <summary>
@@ -114,5 +142,19 @@ internal static class AnalysisTreeViewBinder
         }
 
         return null;
+    }
+
+    private static void CollectMatchingTreeNodes(TreeNode currentNode, string searchText, ICollection<TreeNode> matches)
+    {
+        if (GetDisplayNode(currentNode) is { } displayNode
+            && DisplayTreeSearch.IsMatch(displayNode, searchText))
+        {
+            matches.Add(currentNode);
+        }
+
+        foreach (TreeNode childNode in currentNode.Nodes)
+        {
+            CollectMatchingTreeNodes(childNode, searchText, matches);
+        }
     }
 }
