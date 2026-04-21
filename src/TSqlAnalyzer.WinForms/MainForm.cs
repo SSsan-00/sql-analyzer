@@ -10,6 +10,9 @@ namespace TSqlAnalyzer.WinForms;
 /// </summary>
 public partial class MainForm : Form
 {
+    private static readonly Color TreeSelectionBackColor = Color.FromArgb(0, 102, 204);
+    private static readonly Color TreeSelectionForeColor = Color.White;
+
     private readonly IQueryAnalysisService _analysisService;
     private readonly QueryAnalysisTreeBuilder _treeBuilder;
 
@@ -71,6 +74,35 @@ public partial class MainForm : Form
 
         var displayNode = AnalysisTreeViewBinder.GetDisplayNode(e.Node);
         HighlightSqlSpan(displayNode?.SourceSpan);
+    }
+
+    /// <summary>
+    /// 解析結果側の選択ノードを青く強調表示する。
+    /// 標準描画では TreeView がフォーカスを失ったときに薄い表示になるため、対応関係を追いやすい色で固定する。
+    /// </summary>
+    private void ResultTreeView_DrawNode(object? sender, DrawTreeNodeEventArgs e)
+    {
+        if (e.Node is null)
+        {
+            return;
+        }
+
+        if ((e.State & TreeNodeStates.Selected) != TreeNodeStates.Selected)
+        {
+            e.DrawDefault = true;
+            return;
+        }
+
+        using var backgroundBrush = new SolidBrush(TreeSelectionBackColor);
+        e.Graphics.FillRectangle(backgroundBrush, e.Bounds);
+
+        TextRenderer.DrawText(
+            e.Graphics,
+            e.Node.Text,
+            e.Node.NodeFont ?? resultTreeView.Font,
+            e.Bounds,
+            TreeSelectionForeColor,
+            TextFormatFlags.NoPadding | TextFormatFlags.VerticalCenter);
     }
 
     /// <summary>

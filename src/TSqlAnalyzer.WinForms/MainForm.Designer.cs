@@ -316,8 +316,11 @@ partial class MainForm
         // 
         // resultTreeView
         // 構造を追いやすいよう、階層表示を主役にする。
+        // SQL 入力欄側から連動選択されたときも強く見えるよう、選択行は独自描画する。
         // 
         resultTreeView.Dock = DockStyle.Fill;
+        resultTreeView.DrawMode = TreeViewDrawMode.OwnerDrawText;
+        resultTreeView.FullRowSelect = true;
         resultTreeView.HideSelection = false;
         resultTreeView.Location = new Point(8, 31);
         resultTreeView.Name = "resultTreeView";
@@ -325,6 +328,7 @@ partial class MainForm
         resultTreeView.Size = new Size(630, 472);
         resultTreeView.TabIndex = 1;
         resultTreeView.AfterSelect += ResultTreeView_AfterSelect;
+        resultTreeView.DrawNode += ResultTreeView_DrawNode;
         // 
         // MainForm
         // シンプルな 2 ペイン構成を維持しつつ、検索と全文表示を足す。

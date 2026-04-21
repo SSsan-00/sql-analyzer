@@ -39,7 +39,7 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("主テーブル", flattenedTexts);
         Assert.Contains("結合", flattenedTexts);
         Assert.Contains("JOIN #1", flattenedTexts);
-        Assert.Contains("種別: LEFT JOIN", flattenedTexts);
+        Assert.Contains("結合形式: LEFT JOIN", flattenedTexts);
         Assert.Contains("結合先: dbo.Orders o", flattenedTexts);
         Assert.Contains("ON条件", flattenedTexts);
         Assert.Contains("条件 #1: u.Id = o.UserId", flattenedTexts);
@@ -71,8 +71,8 @@ public sealed class QueryAnalysisTreeBuilderTests
 
         Assert.Contains("ON条件", flattenedTexts);
         Assert.Contains("条件 #1: u.Id = o.UserId", flattenedTexts);
-        Assert.Contains("条件 #2: o.IsDeleted = 0", flattenedTexts);
-        Assert.Contains("条件 #3: (o.Status = 'Open' OR o.Status = 'Pending')", flattenedTexts);
+        Assert.Contains("AND 条件 #2: o.IsDeleted = 0", flattenedTexts);
+        Assert.Contains("AND 条件 #3: (o.Status = 'Open' OR o.Status = 'Pending')", flattenedTexts);
     }
 
     /// <summary>
@@ -102,8 +102,8 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("取得項目", flattenedTexts);
         Assert.Contains("別名: UserId", flattenedTexts);
         Assert.Contains("別名: TotalAmount", flattenedTexts);
-        Assert.Contains("種別: 式", flattenedTexts);
         Assert.DoesNotContain(flattenedTexts, text => text.StartsWith("集計関数:", StringComparison.Ordinal));
+        Assert.DoesNotContain(flattenedTexts, text => text.StartsWith("種別:", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -134,11 +134,11 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("列 #1: u.Id", flattenedTexts);
         Assert.Contains("列 #1: o.Amount", flattenedTexts);
         Assert.Contains("列 #2: o.UserId", flattenedTexts);
-        Assert.Contains("解決状態: 解決済み", flattenedTexts);
         Assert.Contains("参照先: dbo.Users u", flattenedTexts);
         Assert.Contains("参照先: dbo.Orders o", flattenedTexts);
         Assert.Contains("参照別名: u", flattenedTexts);
         Assert.Contains("参照別名: o", flattenedTexts);
+        Assert.DoesNotContain(flattenedTexts, text => text.StartsWith("解決状態:", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -161,9 +161,9 @@ public sealed class QueryAnalysisTreeBuilderTests
         var flattenedTexts = Flatten(tree).ToArray();
 
         Assert.Contains("列 #1: Id", flattenedTexts);
-        Assert.Contains("解決状態: 解決済み", flattenedTexts);
         Assert.Contains("参照先: dbo.Users u", flattenedTexts);
         Assert.Contains("参照別名: u", flattenedTexts);
+        Assert.DoesNotContain(flattenedTexts, text => text.StartsWith("解決状態:", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -215,7 +215,7 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
-    /// ワイルドカード項目で全列種別と修飾子が表示されることを確認する。
+    /// ワイルドカード項目では利用者に必要な修飾子だけが表示されることを確認する。
     /// </summary>
     [Fact]
     public void Build_ForWildcardSelectItems_ContainsWildcardTexts()
@@ -234,10 +234,9 @@ public sealed class QueryAnalysisTreeBuilderTests
         var tree = builder.Build(analysis);
         var flattenedTexts = Flatten(tree).ToArray();
 
-        Assert.Contains("種別: ワイルドカード", flattenedTexts);
-        Assert.Contains("全列種別: 全列", flattenedTexts);
-        Assert.Contains("全列種別: 修飾付き全列", flattenedTexts);
         Assert.Contains("修飾子: u", flattenedTexts);
+        Assert.DoesNotContain(flattenedTexts, text => text.StartsWith("種別:", StringComparison.Ordinal));
+        Assert.DoesNotContain(flattenedTexts, text => text.StartsWith("全列種別:", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -369,7 +368,7 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("依存順", flattenedTexts);
         Assert.Contains("手順 1: base_users", flattenedTexts);
         Assert.Contains("手順 2: active_users", flattenedTexts);
-        Assert.Contains("種別: CTE参照", flattenedTexts);
+        Assert.Contains("分類: CTE参照", flattenedTexts);
     }
 
     /// <summary>
@@ -521,8 +520,8 @@ public sealed class QueryAnalysisTreeBuilderTests
         var tree = builder.Build(analysis);
         var flattenedTexts = Flatten(tree).ToArray();
 
-        Assert.Contains("LIKE種別: LIKE", flattenedTexts);
-        Assert.Contains("範囲種別: BETWEEN", flattenedTexts);
+        Assert.Contains("LIKE: LIKE", flattenedTexts);
+        Assert.Contains("範囲: BETWEEN", flattenedTexts);
         Assert.Contains("EXISTS", flattenedTexts);
         Assert.DoesNotContain(flattenedTexts, text => text.StartsWith("述語種別:", StringComparison.Ordinal));
         Assert.DoesNotContain("条件種別", flattenedTexts);
@@ -555,7 +554,7 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
-    /// NULL 判定種別ラベルを出さず、必要な範囲種別だけを残すことを確認する。
+    /// NULL 判定の詳細ラベルを出さず、必要な範囲情報だけを残すことを確認する。
     /// </summary>
     [Fact]
     public void Build_ForNullAndBetweenPredicates_HidesNullKindTexts()
@@ -577,8 +576,8 @@ public sealed class QueryAnalysisTreeBuilderTests
         var tree = builder.Build(analysis);
         var flattenedTexts = Flatten(tree).ToArray();
 
-        Assert.Contains("範囲種別: BETWEEN", flattenedTexts);
-        Assert.Contains("範囲種別: NOT BETWEEN", flattenedTexts);
+        Assert.Contains("範囲: BETWEEN", flattenedTexts);
+        Assert.Contains("範囲: NOT BETWEEN", flattenedTexts);
         Assert.DoesNotContain(flattenedTexts, text => text.StartsWith("NULL判定種別:", StringComparison.Ordinal));
     }
 
@@ -603,8 +602,8 @@ public sealed class QueryAnalysisTreeBuilderTests
         var tree = builder.Build(analysis);
         var flattenedTexts = Flatten(tree).ToArray();
 
-        Assert.Contains("LIKE種別: LIKE", flattenedTexts);
-        Assert.Contains("LIKE種別: NOT LIKE", flattenedTexts);
+        Assert.Contains("LIKE: LIKE", flattenedTexts);
+        Assert.Contains("LIKE: NOT LIKE", flattenedTexts);
     }
 
     /// <summary>
@@ -637,9 +636,9 @@ public sealed class QueryAnalysisTreeBuilderTests
         var flattenedTexts = Flatten(tree).ToArray();
 
         Assert.Contains("集合演算", flattenedTexts);
-        Assert.Contains("種別: UNION ALL", flattenedTexts);
+        Assert.Contains("集合演算: UNION ALL", flattenedTexts);
         Assert.Contains("右クエリ", flattenedTexts);
-        Assert.Contains("種別: INTERSECT", flattenedTexts);
+        Assert.Contains("集合演算: INTERSECT", flattenedTexts);
         Assert.Contains(flattenedTexts, text => text.Contains("dbo.PremiumUsers", StringComparison.Ordinal));
     }
 
@@ -674,11 +673,11 @@ public sealed class QueryAnalysisTreeBuilderTests
 
         Assert.Contains("左概要", flattenedTexts);
         Assert.Contains("右概要", flattenedTexts);
-        Assert.Contains("クエリ種別: SELECT", flattenedTexts);
-        Assert.Contains("クエリ種別: 集合演算", flattenedTexts);
+        Assert.Contains("クエリ: SELECT", flattenedTexts);
+        Assert.Contains("クエリ: 集合演算", flattenedTexts);
         Assert.Contains("主ソース: dbo.Users u", flattenedTexts);
         Assert.Contains("子集合演算数: 1", flattenedTexts);
-        Assert.Contains("集合演算種別: INTERSECT", flattenedTexts);
+        Assert.Contains("集合演算: INTERSECT", flattenedTexts);
     }
 
     /// <summary>
@@ -705,14 +704,14 @@ public sealed class QueryAnalysisTreeBuilderTests
         var tree = builder.Build(analysis);
         var flattenedTexts = Flatten(tree).ToArray();
 
-        Assert.Contains("文種別: UPDATE", flattenedTexts);
+        Assert.Contains("文: UPDATE", flattenedTexts);
         Assert.Contains("更新対象", flattenedTexts);
         Assert.Contains("更新内容", flattenedTexts);
         Assert.Contains("SET #1", flattenedTexts);
         Assert.Contains("列: u.Status", flattenedTexts);
         Assert.Contains("値: o.Status", flattenedTexts);
         Assert.Contains("結合", flattenedTexts);
-        Assert.Contains("種別: INNER JOIN", flattenedTexts);
+        Assert.Contains("結合形式: INNER JOIN", flattenedTexts);
         Assert.Contains("抽出条件", flattenedTexts);
     }
 
@@ -738,14 +737,14 @@ public sealed class QueryAnalysisTreeBuilderTests
         var insertTree = builder.Build(insertAnalysis);
         var insertTexts = Flatten(insertTree).ToArray();
 
-        Assert.Contains("文種別: INSERT", insertTexts);
+        Assert.Contains("文: INSERT", insertTexts);
         Assert.Contains("挿入対象", insertTexts);
         Assert.Contains("挿入列", insertTexts);
         Assert.Contains("入力元", insertTexts);
         Assert.Contains("列と値の対応", insertTexts);
-        Assert.Contains("対応 #1: UserId <= u.Id", insertTexts);
-        Assert.Contains("対応 #2: OrderCount <= COUNT(*)", insertTexts);
-        Assert.Contains("種別: SELECTクエリ", insertTexts);
+        Assert.Contains("対応 #1: UserId ← u.Id", insertTexts);
+        Assert.Contains("対応 #2: OrderCount ← COUNT(*)", insertTexts);
+        Assert.Contains("入力形式: SELECTクエリ", insertTexts);
         Assert.Contains("内部クエリ", insertTexts);
 
         const string deleteSql = """
@@ -760,10 +759,10 @@ public sealed class QueryAnalysisTreeBuilderTests
         var deleteTree = builder.Build(deleteAnalysis);
         var deleteTexts = Flatten(deleteTree).ToArray();
 
-        Assert.Contains("文種別: DELETE", deleteTexts);
+        Assert.Contains("文: DELETE", deleteTexts);
         Assert.Contains("削除対象", deleteTexts);
         Assert.Contains("結合", deleteTexts);
-        Assert.Contains("種別: LEFT JOIN", deleteTexts);
+        Assert.Contains("結合形式: LEFT JOIN", deleteTexts);
         Assert.Contains("抽出条件", deleteTexts);
     }
 
@@ -808,9 +807,9 @@ public sealed class QueryAnalysisTreeBuilderTests
         var createViewTree = builder.Build(createViewAnalysis);
         var createViewTexts = Flatten(createViewTree).ToArray();
 
-        Assert.Contains("文種別: CREATE", createViewTexts);
+        Assert.Contains("文: CREATE", createViewTexts);
         Assert.Contains("作成対象", createViewTexts);
-        Assert.Contains("種別: VIEW", createViewTexts);
+        Assert.Contains("作成形式: VIEW", createViewTexts);
         Assert.Contains("名前: dbo.ActiveUsers", createViewTexts);
         Assert.Contains("内部クエリ", createViewTexts);
 
@@ -825,7 +824,7 @@ public sealed class QueryAnalysisTreeBuilderTests
         var createTableTree = builder.Build(createTableAnalysis);
         var createTableTexts = Flatten(createTableTree).ToArray();
 
-        Assert.Contains("種別: TABLE", createTableTexts);
+        Assert.Contains("作成形式: TABLE", createTableTexts);
         Assert.Contains("列定義", createTableTexts);
         Assert.Contains("列 #1: Id", createTableTexts);
         Assert.Contains("データ型: INT", createTableTexts);
