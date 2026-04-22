@@ -9,6 +9,7 @@ src/TSqlAnalyzer.Application/TSqlAnalyzer.Application.csproj
 src/TSqlAnalyzer.Application/Analysis/CommonTableExpressionDependencyAnalyzer.cs
 src/TSqlAnalyzer.Application/Analysis/ISqlQueryAnalyzer.cs
 src/TSqlAnalyzer.Application/Analysis/ScriptDomQueryAnalyzer.cs
+src/TSqlAnalyzer.Application/Export/ColumnTextExportBuilder.cs
 src/TSqlAnalyzer.Application/Presentation/DisplayTreeNode.cs
 src/TSqlAnalyzer.Application/Presentation/DisplayTreeExpansionPolicy.cs
 src/TSqlAnalyzer.Application/Presentation/DisplayTreeNodeKindCatalog.cs

@@ -1,3 +1,5 @@
+using System.Text;
+using TSqlAnalyzer.Application.Export;
 using TSqlAnalyzer.Application.Presentation;
 using TSqlAnalyzer.Application.Services;
 using TSqlAnalyzer.Domain.Analysis;
@@ -18,7 +20,9 @@ public partial class MainForm : Form
 
     private readonly IQueryAnalysisService _analysisService;
     private readonly QueryAnalysisTreeBuilder _treeBuilder;
+    private readonly ColumnTextExportBuilder _columnTextExportBuilder;
 
+    private QueryAnalysisResult? _currentAnalysis;
     private DisplayTreeNode? _currentTree;
     private DisplayTreeNode? _displayedTree;
     private TextSpan? _highlightedSqlSpan;
@@ -31,10 +35,14 @@ public partial class MainForm : Form
     /// <summary>
     /// 必要なサービスを受け取って初期化する。
     /// </summary>
-    public MainForm(IQueryAnalysisService analysisService, QueryAnalysisTreeBuilder treeBuilder)
+    public MainForm(
+        IQueryAnalysisService analysisService,
+        QueryAnalysisTreeBuilder treeBuilder,
+        ColumnTextExportBuilder columnTextExportBuilder)
     {
         _analysisService = analysisService;
         _treeBuilder = treeBuilder;
+        _columnTextExportBuilder = columnTextExportBuilder;
 
         InitializeComponent();
         ConfigureResultTreeViewVisuals();
@@ -58,6 +66,7 @@ public partial class MainForm : Form
         var analysis = _analysisService.Analyze(sqlTextBox.Text);
         var tree = _treeBuilder.Build(analysis);
 
+        _currentAnalysis = analysis;
         _currentTree = tree;
         _displayedTree = tree;
         _isTreeFilterActive = false;
@@ -83,6 +92,7 @@ public partial class MainForm : Form
     /// </summary>
     private void ClearButton_Click(object? sender, EventArgs e)
     {
+        _currentAnalysis = null;
         _currentTree = null;
         _displayedTree = null;
         _isTreeFilterActive = false;
@@ -95,6 +105,53 @@ public partial class MainForm : Form
         resultSearchTextBox.Clear();
         findPanel.Visible = false;
         sqlTextBox.Focus();
+    }
+
+    /// <summary>
+    /// 解析結果から列確認用テキストを生成し、利用者が指定した場所へ保存する。
+    /// テキストの組み立ては Application 層へ委譲し、フォームは保存操作だけを担当する。
+    /// </summary>
+    private void ExportTextButton_Click(object? sender, EventArgs e)
+    {
+        if (_currentAnalysis is null)
+        {
+            MessageBox.Show(
+                this,
+                "先に解析を実行してください。",
+                "テキスト保存",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        var exportText = _columnTextExportBuilder.Build(_currentAnalysis);
+        if (string.IsNullOrWhiteSpace(exportText))
+        {
+            MessageBox.Show(
+                this,
+                "エクスポート対象の列情報がありません。",
+                "テキスト保存",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        using var saveFileDialog = new SaveFileDialog
+        {
+            AddExtension = true,
+            DefaultExt = "txt",
+            FileName = $"tsql-column-export-{DateTime.Now:yyyyMMdd-HHmmss}.txt",
+            Filter = "テキスト ファイル (*.txt)|*.txt|すべてのファイル (*.*)|*.*",
+            OverwritePrompt = true,
+            Title = "列テキストの保存"
+        };
+
+        if (saveFileDialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        File.WriteAllText(saveFileDialog.FileName, exportText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
     }
 
     /// <summary>

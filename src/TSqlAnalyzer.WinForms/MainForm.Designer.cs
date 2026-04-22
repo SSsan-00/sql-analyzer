@@ -30,6 +30,7 @@ partial class MainForm
     private Button resultFilterClearButton = null!;
     private Button analyzeButton = null!;
     private Button clearButton = null!;
+    private Button exportTextButton = null!;
     private RichTextBox sqlTextBox = null!;
     private TreeView resultTreeView = null!;
     private Panel resultDetailPanel = null!;
@@ -58,6 +59,7 @@ partial class MainForm
         buttonPanel = new FlowLayoutPanel();
         analyzeButton = new Button();
         clearButton = new Button();
+        exportTextButton = new Button();
         mainSplitContainer = new SplitContainer();
         sqlTextBox = new RichTextBox();
         findPanel = new FlowLayoutPanel();
@@ -112,6 +114,7 @@ partial class MainForm
         buttonPanel.AutoSize = true;
         buttonPanel.Controls.Add(analyzeButton);
         buttonPanel.Controls.Add(clearButton);
+        buttonPanel.Controls.Add(exportTextButton);
         buttonPanel.Dock = DockStyle.Fill;
         buttonPanel.Location = new Point(12, 12);
         buttonPanel.Margin = new Padding(12, 12, 12, 8);
@@ -146,6 +149,20 @@ partial class MainForm
         clearButton.Text = "クリア";
         clearButton.UseVisualStyleBackColor = true;
         clearButton.Click += ClearButton_Click;
+        //
+        // exportTextButton
+        // 解析済みの列情報をテキストファイルへ保存する。
+        //
+        exportTextButton.AutoSize = true;
+        exportTextButton.Location = new Point(180, 0);
+        exportTextButton.Margin = new Padding(8, 0, 0, 0);
+        exportTextButton.Name = "exportTextButton";
+        exportTextButton.Padding = new Padding(12, 6, 12, 6);
+        exportTextButton.Size = new Size(110, 41);
+        exportTextButton.TabIndex = 2;
+        exportTextButton.Text = "テキスト保存";
+        exportTextButton.UseVisualStyleBackColor = true;
+        exportTextButton.Click += ExportTextButton_Click;
         //
         // mainSplitContainer
         // 左に入力欄、右に解析結果と全文表示を配置する。
