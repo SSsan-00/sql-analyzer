@@ -6,7 +6,7 @@ using TSqlAnalyzer.Domain.Analysis;
 namespace TSqlAnalyzer.Tests.Export;
 
 /// <summary>
-/// 列テキストエクスポートの仕様を検証する。
+/// 列情報エクスポートの仕様を検証する。
 /// 画面やファイル保存に依存せず、解析結果から作るテキストだけを対象にする。
 /// </summary>
 public sealed class ColumnTextExportBuilderTests

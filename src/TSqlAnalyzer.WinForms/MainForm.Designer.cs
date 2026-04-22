@@ -151,7 +151,7 @@ partial class MainForm
         clearButton.Click += ClearButton_Click;
         //
         // exportTextButton
-        // 解析済みの列情報をテキストファイルへ保存する。
+        // 解析済みの列情報をテキストファイルへエクスポートする。
         //
         exportTextButton.AutoSize = true;
         exportTextButton.Location = new Point(180, 0);
@@ -160,7 +160,7 @@ partial class MainForm
         exportTextButton.Padding = new Padding(12, 6, 12, 6);
         exportTextButton.Size = new Size(110, 41);
         exportTextButton.TabIndex = 2;
-        exportTextButton.Text = "テキスト保存";
+        exportTextButton.Text = "列情報エクスポート";
         exportTextButton.UseVisualStyleBackColor = true;
         exportTextButton.Click += ExportTextButton_Click;
         //

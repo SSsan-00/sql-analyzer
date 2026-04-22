@@ -118,7 +118,7 @@ public partial class MainForm : Form
             MessageBox.Show(
                 this,
                 "先に解析を実行してください。",
-                "テキスト保存",
+                "列情報エクスポート",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
             return;
@@ -130,7 +130,7 @@ public partial class MainForm : Form
             MessageBox.Show(
                 this,
                 "エクスポート対象の列情報がありません。",
-                "テキスト保存",
+                "列情報エクスポート",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
             return;
@@ -143,7 +143,7 @@ public partial class MainForm : Form
             FileName = $"tsql-column-export-{DateTime.Now:yyyyMMdd-HHmmss}.txt",
             Filter = "テキスト ファイル (*.txt)|*.txt|すべてのファイル (*.*)|*.*",
             OverwritePrompt = true,
-            Title = "列テキストの保存"
+            Title = "列情報エクスポート"
         };
 
         if (saveFileDialog.ShowDialog(this) != DialogResult.OK)
