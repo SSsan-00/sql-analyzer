@@ -41,6 +41,7 @@
 - 派生テーブルや JOIN 先サブクエリの内部構造を TreeView で追える
 - 集合演算ノードで `左概要 / 右概要 / 子集合演算数` を表示し、左右差を先に把握できる
 - SELECT 項目で `式 / 別名` を分解表示できる
+- SELECT 項目、WHERE / HAVING、JOIN ON 内の `CASE` 式を `値比較CASE / 条件式CASE` に分け、`WHEN / THEN / ELSE` を読みやすく表示できる
 - `SELECT *` と `table.*` を区別し、必要に応じて修飾子を表示できる
 - `SELECT INTO` では `出力先` を表示できる
 - `CREATE VIEW` では `作成対象 / 列定義 / 内部クエリ` を表示できる
@@ -61,7 +62,8 @@
 - TreeView 内の検索、次候補移動、絞り込み表示ができる
 - TreeView 上で `Ctrl+F`、`F3`、`Shift+F3` による検索操作ができる
 - SQL 入力欄で `Ctrl+F` による検索ができる
-- 解析結果の選択対象に対応する SQL 断片を選択と背景色で相互ハイライトできる
+- 解析結果の選択対象に対応する SQL 断片を選択と黄色背景で相互ハイライトできる
+- TreeView から別コントロールや別アプリへフォーカスを移すと、SQL 側の一時的な黄色背景を解除できる
 - TreeView で選択したノードの全文を下部ペインで確認できる
 
 ## この初期版でまだ未対応のこと
@@ -282,12 +284,21 @@ dotnet run --project src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj -c D
 ```sql
 SELECT
     u.Id,
-    o.OrderNo
+    o.OrderNo,
+    CASE
+        WHEN o.Amount >= 1000 THEN 'High'
+        WHEN o.Amount > 0 THEN 'Normal'
+        ELSE 'None'
+    END AS AmountBand
 FROM dbo.Users u
 LEFT JOIN dbo.Orders o
     ON u.Id = o.UserId
    AND o.Amount > 0
-WHERE EXISTS (
+WHERE CASE u.Status
+          WHEN 'A' THEN 1
+          ELSE 0
+      END = 1
+  AND EXISTS (
     SELECT 1
     FROM dbo.Payments p
     WHERE p.OrderId = o.Id
@@ -300,6 +311,7 @@ ORDER BY u.Id;
 - `クエリ解析結果` がルート表示される
 - `主構造` 配下に `取得項目` `主テーブル` `結合` `抽出条件` `並び順` が出る
 - `取得項目` 配下に `別名` が出る
+- `取得項目` 配下に `CASE式` が出て、`条件式` と `結果` が分かれて表示される
 - `取得項目` 配下にワイルドカード項目の修飾子が出る
 - `集合演算` 配下に `概要` `左概要` `右概要` が出る
 - `集合演算` 配下に `子集合演算数` が出る
@@ -311,13 +323,16 @@ ORDER BY u.Id;
 - TreeView 上で `Ctrl+F` を押すとツリー検索欄へ移動し、`F3` / `Shift+F3` で一致ノードを移動できる
 - `抽出条件` 配下に `条件論理` が出る
 - `条件論理` 配下に `EXISTS` `NOT EXISTS` `IN` `NOT IN` が構造として出る
+- `抽出条件` や `ON条件` 配下に `CASE式` が出て、`値比較CASE` と `条件式CASE` が分かれて表示される
 - `条件論理` 配下に `範囲: NOT BETWEEN` や `LIKE: NOT LIKE` が出る
 - `共通テーブル式` 配下に `参照関係` が出る
 - `共通テーブル式` 配下に `依存順` が出る
 - `サブクエリ` 配下に WHERE 句由来のサブクエリが出る
 - 右下の `全文表示` に選択ノードの SQL 全文が出る
 - SQL 入力欄で選択した位置に応じて TreeView の選択が移動する
-- TreeView で選択したノードに対応する SQL 断片が、選択と淡い背景色で強調される
+- TreeView で選択したノードに対応する SQL 断片が、選択と黄色背景で強調される
+- TreeView から別コントロールや別アプリへフォーカスを移すと、SQL 側の黄色背景が残らず解除される
+- 通常テーブルのソースでは `分類: 通常ソース` が表示されない
 
 ## ビルド成果物作成手順
 

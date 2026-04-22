@@ -141,6 +141,108 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// CASE 式が値比較 CASE と条件式 CASE として読みやすく表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForCaseExpressions_ContainsReadableCaseNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               CASE u.Status
+                                   WHEN 'A' THEN 'Active'
+                                   ELSE 'Unknown'
+                               END AS StatusName,
+                               CASE
+                                   WHEN o.Amount > 0 THEN 'HasAmount'
+                                   ELSE 'None'
+                               END AS AmountStatus
+                           FROM dbo.Users u
+                           LEFT JOIN dbo.Orders o
+                               ON u.Id = o.UserId;
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("CASE式", flattenedTexts);
+        Assert.Contains("CASE #1: 値比較CASE", flattenedTexts);
+        Assert.Contains("比較対象: u.Status", flattenedTexts);
+        Assert.Contains("値: 'A'", flattenedTexts);
+        Assert.Contains("結果: 'Active'", flattenedTexts);
+        Assert.Contains("CASE #1: 条件式CASE", flattenedTexts);
+        Assert.Contains("条件式: o.Amount > 0", flattenedTexts);
+        Assert.Contains("結果: 'HasAmount'", flattenedTexts);
+        Assert.Contains("ELSE: 'Unknown'", flattenedTexts);
+        Assert.Contains("ELSE: 'None'", flattenedTexts);
+    }
+
+    /// <summary>
+    /// 条件式内の CASE 式も、WHERE や JOIN ON の配下で読みやすく表示されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForConditionCaseExpressions_ContainsReadableCaseNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           LEFT JOIN dbo.Orders o
+                               ON CASE
+                                      WHEN o.Amount > 0 THEN o.UserId
+                                      ELSE NULL
+                                  END = u.Id
+                           WHERE CASE u.Status
+                                     WHEN 'A' THEN 1
+                                     ELSE 0
+                                 END = 1;
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("ON条件", flattenedTexts);
+        Assert.Contains("抽出条件", flattenedTexts);
+        Assert.Contains("CASE #1: 条件式CASE", flattenedTexts);
+        Assert.Contains("条件式: o.Amount > 0", flattenedTexts);
+        Assert.Contains("結果: o.UserId", flattenedTexts);
+        Assert.Contains("CASE #1: 値比較CASE", flattenedTexts);
+        Assert.Contains("比較対象: u.Status", flattenedTexts);
+        Assert.Contains("値: 'A'", flattenedTexts);
+        Assert.Contains("結果: 1", flattenedTexts);
+    }
+
+    /// <summary>
+    /// 通常テーブルソースでは分類ノードを出さず、CTE や派生テーブルなどの補足だけを表示することを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForObjectSource_HidesNormalSourceClassification()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u;
+                           """;
+
+        var analysis = service.Analyze(sql);
+
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("主テーブル", flattenedTexts);
+        Assert.DoesNotContain("分類: 通常ソース", flattenedTexts);
+    }
+
+    /// <summary>
     /// SELECT 項目や条件式で参照列ノードが表示されることを確認する。
     /// </summary>
     [Fact]

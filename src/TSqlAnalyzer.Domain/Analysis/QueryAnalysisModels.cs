@@ -52,6 +52,16 @@ public enum SelectWildcardKind
 }
 
 /// <summary>
+/// CASE 式の形。
+/// 値比較 CASE と条件式 CASE を分けることで、TreeView で WHEN の読み方を切り替えられる。
+/// </summary>
+public enum CaseExpressionKind
+{
+    Simple,
+    Searched
+}
+
+/// <summary>
 /// JOIN の種別。
 /// 画面表示では文字列も保持するが、内部判定用に enum も持たせる。
 /// </summary>
@@ -521,7 +531,31 @@ public sealed record SelectItemAnalysis(
     TextSpan? SourceSpan = null)
 {
     public IReadOnlyList<ColumnReferenceAnalysis> ColumnReferences { get; init; } = [];
+    public IReadOnlyList<CaseExpressionAnalysis> CaseExpressions { get; init; } = [];
 }
+
+/// <summary>
+/// CASE 式 1 件分の解析結果。
+/// 値比較 CASE では比較対象を持ち、条件式 CASE では WHEN 条件を個別に持つ。
+/// </summary>
+public sealed record CaseExpressionAnalysis(
+    int Sequence,
+    CaseExpressionKind Kind,
+    string DisplayText,
+    string? InputExpressionText,
+    IReadOnlyList<CaseWhenClauseAnalysis> WhenClauses,
+    string? ElseExpressionText,
+    TextSpan? SourceSpan = null);
+
+/// <summary>
+/// CASE 式の WHEN / THEN 1 件分。
+/// Simple CASE では WhenText が比較値、Searched CASE では条件式になる。
+/// </summary>
+public sealed record CaseWhenClauseAnalysis(
+    int Sequence,
+    string WhenText,
+    string ThenText,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// FROM 句や JOIN 先として使われるソースを表す。
@@ -548,6 +582,7 @@ public sealed record JoinConditionPartAnalysis(
     TextSpan? SourceSpan = null)
 {
     public IReadOnlyList<ColumnReferenceAnalysis> ColumnReferences { get; init; } = [];
+    public IReadOnlyList<CaseExpressionAnalysis> CaseExpressions { get; init; } = [];
 }
 
 /// <summary>
@@ -574,6 +609,7 @@ public sealed record ConditionAnalysis(
     TextSpan? SourceSpan = null)
 {
     public IReadOnlyList<ColumnReferenceAnalysis> ColumnReferences { get; init; } = [];
+    public IReadOnlyList<CaseExpressionAnalysis> CaseExpressions { get; init; } = [];
 }
 
 /// <summary>
@@ -594,6 +630,7 @@ public sealed record ConditionNodeAnalysis(
     TextSpan? SourceSpan = null)
 {
     public IReadOnlyList<ColumnReferenceAnalysis> ColumnReferences { get; init; } = [];
+    public IReadOnlyList<CaseExpressionAnalysis> CaseExpressions { get; init; } = [];
 }
 
 /// <summary>

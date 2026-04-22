@@ -363,12 +363,81 @@ public sealed class QueryAnalysisTreeBuilder
             children.Add(BuildColumnReferencesNode(item.ColumnReferences));
         }
 
+        if (item.CaseExpressions.Count > 0)
+        {
+            children.Add(BuildCaseExpressionsNode(item.CaseExpressions));
+        }
+
         if (item.Kind == SelectItemKind.Wildcard)
         {
             children.Add(Node($"修飾子: {item.WildcardQualifier ?? "なし"}"));
         }
 
         return NodeWithSpan(DisplayTreeNodeKind.Select, $"項目 #{item.Sequence}: {item.DisplayText}", item.SourceSpan, children.ToArray());
+    }
+
+    /// <summary>
+    /// SELECT 項目内の CASE 式一覧ノードを作る。
+    /// 値比較 CASE と条件式 CASE で WHEN の見出しを変え、読み方を明確にする。
+    /// </summary>
+    private static DisplayTreeNode BuildCaseExpressionsNode(IReadOnlyList<CaseExpressionAnalysis> caseExpressions)
+    {
+        return Node(
+            DisplayTreeNodeKind.Condition,
+            "CASE式",
+            caseExpressions.Select(BuildCaseExpressionNode).ToArray());
+    }
+
+    /// <summary>
+    /// CASE 式 1 件分のノードを作る。
+    /// </summary>
+    private static DisplayTreeNode BuildCaseExpressionNode(CaseExpressionAnalysis caseExpression)
+    {
+        var children = new List<DisplayTreeNode>
+        {
+            NodeWithSpan($"全体: {caseExpression.DisplayText}", caseExpression.SourceSpan)
+        };
+
+        if (caseExpression.Kind == CaseExpressionKind.Simple && !string.IsNullOrWhiteSpace(caseExpression.InputExpressionText))
+        {
+            children.Add(Node($"比較対象: {caseExpression.InputExpressionText}"));
+        }
+
+        children.AddRange(caseExpression.WhenClauses.Select(clause => BuildCaseWhenClauseNode(caseExpression.Kind, clause)));
+        children.Add(Node($"ELSE: {caseExpression.ElseExpressionText ?? "なし"}"));
+
+        return NodeWithSpan(
+            DisplayTreeNodeKind.Condition,
+            $"CASE #{caseExpression.Sequence}: {BuildCaseExpressionKindText(caseExpression.Kind)}",
+            caseExpression.SourceSpan,
+            children.ToArray());
+    }
+
+    /// <summary>
+    /// CASE 式の WHEN / THEN ノードを作る。
+    /// </summary>
+    private static DisplayTreeNode BuildCaseWhenClauseNode(CaseExpressionKind caseExpressionKind, CaseWhenClauseAnalysis clause)
+    {
+        var whenLabel = caseExpressionKind == CaseExpressionKind.Simple ? "値" : "条件式";
+        return NodeWithSpan(
+            DisplayTreeNodeKind.Condition,
+            $"WHEN #{clause.Sequence}",
+            clause.SourceSpan,
+            Node($"{whenLabel}: {clause.WhenText}"),
+            Node($"結果: {clause.ThenText}"));
+    }
+
+    /// <summary>
+    /// CASE 式の表示名を返す。
+    /// </summary>
+    private static string BuildCaseExpressionKindText(CaseExpressionKind caseExpressionKind)
+    {
+        return caseExpressionKind switch
+        {
+            CaseExpressionKind.Simple => "値比較CASE",
+            CaseExpressionKind.Searched => "条件式CASE",
+            _ => "CASE"
+        };
     }
 
     /// <summary>
@@ -385,9 +454,14 @@ public sealed class QueryAnalysisTreeBuilder
         var children = new List<DisplayTreeNode>
         {
             Node(source.DisplayText),
-            Node($"別名: {source.Alias ?? "なし"}"),
-            BuildSourceKindNode(source)
+            Node($"別名: {source.Alias ?? "なし"}")
         };
+
+        var sourceKindNode = BuildSourceKindNode(source);
+        if (sourceKindNode is not null)
+        {
+            children.Add(sourceKindNode);
+        }
 
         if (source.NestedQuery is not null)
         {
@@ -809,13 +883,17 @@ public sealed class QueryAnalysisTreeBuilder
     /// ソース種別ノードを作る。
     /// CTE 参照や派生テーブルを明示して、主テーブルや JOIN 先の意味を追いやすくする。
     /// </summary>
-    private static DisplayTreeNode BuildSourceKindNode(SourceAnalysis source)
+    private static DisplayTreeNode? BuildSourceKindNode(SourceAnalysis source)
     {
+        if (source.SourceKind == SourceKind.Object)
+        {
+            return null;
+        }
+
         var text = source.SourceKind switch
         {
             SourceKind.CommonTableExpressionReference => "CTE参照",
             SourceKind.DerivedTable => "派生テーブル",
-            SourceKind.Object => "通常ソース",
             _ => "不明"
         };
 
@@ -836,9 +914,14 @@ public sealed class QueryAnalysisTreeBuilder
         {
             Node($"結合形式: {join.JoinTypeText}"),
             Node($"結合先: {join.TargetSource.DisplayText}"),
-            BuildSourceKindNode(join.TargetSource),
             BuildJoinOnConditionNode(join)
         };
+
+        var sourceKindNode = BuildSourceKindNode(join.TargetSource);
+        if (sourceKindNode is not null)
+        {
+            children.Insert(2, sourceKindNode);
+        }
 
         if (join.TargetSource.NestedQuery is not null)
         {
@@ -865,13 +948,22 @@ public sealed class QueryAnalysisTreeBuilder
             join.OnConditionParts
                 .Select(part =>
                 {
-                    var children = part.ColumnReferences.Count > 0
-                        ? new[] { BuildColumnReferencesNode(part.ColumnReferences) }
-                        : Array.Empty<DisplayTreeNode>();
+                    var children = new List<DisplayTreeNode>();
+
+                    if (part.ColumnReferences.Count > 0)
+                    {
+                        children.Add(BuildColumnReferencesNode(part.ColumnReferences));
+                    }
+
+                    if (part.CaseExpressions.Count > 0)
+                    {
+                        children.Add(BuildCaseExpressionsNode(part.CaseExpressions));
+                    }
+
                     var conditionText = part.Sequence == 1
                         ? $"条件 #{part.Sequence}: {part.DisplayText}"
                         : $"AND 条件 #{part.Sequence}: {part.DisplayText}";
-                    return NodeWithSpan(DisplayTreeNodeKind.Condition, conditionText, part.SourceSpan, children);
+                    return NodeWithSpan(DisplayTreeNodeKind.Condition, conditionText, part.SourceSpan, children.ToArray());
                 })
                 .ToArray());
     }
@@ -899,6 +991,11 @@ public sealed class QueryAnalysisTreeBuilder
             if (node.ColumnReferences.Count > 0)
             {
                 children.Add(BuildColumnReferencesNode(node.ColumnReferences));
+            }
+
+            if (node.CaseExpressions.Count > 0)
+            {
+                children.Add(BuildCaseExpressionsNode(node.CaseExpressions));
             }
 
             if (node.PredicateKind == ConditionPredicateKind.Between)

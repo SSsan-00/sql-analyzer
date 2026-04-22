@@ -531,7 +531,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     null,
                     CreateTextSpan(scalarExpression))
                 {
-                    ColumnReferences = CollectColumnReferences(scalarExpression.Expression)
+                    ColumnReferences = CollectColumnReferences(scalarExpression.Expression),
+                    CaseExpressions = AnalyzeCaseExpressions(scalarExpression.Expression)
                 },
                 SelectStarExpression starExpression => new SelectItemAnalysis(
                     sequence,
@@ -554,7 +555,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     null,
                     CreateTextSpan(setVariable))
                 {
-                    ColumnReferences = CollectColumnReferences(setVariable.Expression)
+                    ColumnReferences = CollectColumnReferences(setVariable.Expression),
+                    CaseExpressions = AnalyzeCaseExpressions(setVariable.Expression)
                 },
                 _ => new SelectItemAnalysis(
                     sequence,
@@ -801,6 +803,22 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             var visitor = new AggregateFunctionVisitor();
             expression.Accept(visitor);
             return visitor.FirstAggregateFunctionName;
+        }
+
+        /// <summary>
+        /// 式の中に含まれる CASE 式を構造化して返す。
+        /// CASE は SELECT 項目の理解に効くため、式全文とは別に WHEN / THEN を分けて保持する。
+        /// </summary>
+        private IReadOnlyList<CaseExpressionAnalysis> AnalyzeCaseExpressions(TSqlFragment? fragment)
+        {
+            if (fragment is null)
+            {
+                return [];
+            }
+
+            var visitor = new CaseExpressionCollector(_textExtractor);
+            fragment.Accept(visitor);
+            return visitor.Items;
         }
 
         /// <summary>
@@ -1522,7 +1540,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 collector.Markers.ToArray(),
                 CreateTextSpan(condition))
             {
-                ColumnReferences = CollectColumnReferences(condition)
+                ColumnReferences = CollectColumnReferences(condition),
+                CaseExpressions = AnalyzeCaseExpressions(condition)
             };
         }
 
@@ -1723,7 +1742,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     _textExtractor.Normalize(part),
                     CreateTextSpan(part))
                 {
-                    ColumnReferences = CollectColumnReferences(part)
+                    ColumnReferences = CollectColumnReferences(part),
+                    CaseExpressions = AnalyzeCaseExpressions(part)
                 })
                 .ToArray();
         }
@@ -1982,7 +2002,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     marker,
                     CreateTextSpan(markerFragment))
                 {
-                    ColumnReferences = _core.CollectColumnReferences(markerFragment)
+                    ColumnReferences = _core.CollectColumnReferences(markerFragment),
+                    CaseExpressions = _core.AnalyzeCaseExpressions(markerFragment)
                 };
             }
 
@@ -2011,7 +2032,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     marker,
                     CreateTextSpan(node))
                 {
-                    ColumnReferences = _core.CollectColumnReferences(node)
+                    ColumnReferences = _core.CollectColumnReferences(node),
+                    CaseExpressions = _core.AnalyzeCaseExpressions(node)
                 };
             }
 
@@ -2032,7 +2054,8 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     null,
                     CreateTextSpan(expression))
                 {
-                    ColumnReferences = _core.CollectColumnReferences(expression)
+                    ColumnReferences = _core.CollectColumnReferences(expression),
+                    CaseExpressions = _core.AnalyzeCaseExpressions(expression)
                 };
             }
 
@@ -2152,6 +2175,63 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     FirstAggregateFunctionName = functionName.ToUpperInvariant();
                     return;
                 }
+
+                base.ExplicitVisit(node);
+            }
+        }
+
+        /// <summary>
+        /// 式ツリーから CASE 式を取り出す visitor。
+        /// ScriptDom の CASE オブジェクトを、画面で読みやすい独自モデルへ変換する。
+        /// </summary>
+        private sealed class CaseExpressionCollector : TSqlFragmentVisitor
+        {
+            private readonly SqlTextExtractor _textExtractor;
+            private readonly List<CaseExpressionAnalysis> _items = [];
+
+            public CaseExpressionCollector(SqlTextExtractor textExtractor)
+            {
+                _textExtractor = textExtractor;
+            }
+
+            public IReadOnlyList<CaseExpressionAnalysis> Items => _items;
+
+            public override void ExplicitVisit(SimpleCaseExpression node)
+            {
+                _items.Add(new CaseExpressionAnalysis(
+                    _items.Count + 1,
+                    CaseExpressionKind.Simple,
+                    _textExtractor.Normalize(node),
+                    _textExtractor.Normalize(node.InputExpression),
+                    node.WhenClauses
+                        .Select((clause, index) => new CaseWhenClauseAnalysis(
+                            index + 1,
+                            _textExtractor.Normalize(clause.WhenExpression),
+                            _textExtractor.Normalize(clause.ThenExpression),
+                            CreateTextSpan(clause)))
+                        .ToArray(),
+                    node.ElseExpression is null ? null : _textExtractor.Normalize(node.ElseExpression),
+                    CreateTextSpan(node)));
+
+                base.ExplicitVisit(node);
+            }
+
+            public override void ExplicitVisit(SearchedCaseExpression node)
+            {
+                _items.Add(new CaseExpressionAnalysis(
+                    _items.Count + 1,
+                    CaseExpressionKind.Searched,
+                    _textExtractor.Normalize(node),
+                    null,
+                    node.WhenClauses
+                        .Select((clause, index) => new CaseWhenClauseAnalysis(
+                            index + 1,
+                            _textExtractor.Normalize(clause.WhenExpression),
+                            _textExtractor.Normalize(clause.ThenExpression),
+                            CreateTextSpan(clause)))
+                        .ToArray(),
+                    node.ElseExpression is null ? null : _textExtractor.Normalize(node.ElseExpression),
+                    CreateTextSpan(node)));
 
                 base.ExplicitVisit(node);
             }

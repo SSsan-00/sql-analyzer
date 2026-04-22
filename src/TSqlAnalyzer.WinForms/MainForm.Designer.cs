@@ -433,6 +433,7 @@ partial class MainForm
         resultTreeView.AfterSelect += ResultTreeView_AfterSelect;
         resultTreeView.DrawNode += ResultTreeView_DrawNode;
         resultTreeView.KeyDown += ResultTreeView_KeyDown;
+        resultTreeView.Leave += ResultTreeView_Leave;
         //
         // MainForm
         // シンプルな 2 ペイン構成を維持しつつ、検索と全文表示を足す。
@@ -446,6 +447,7 @@ partial class MainForm
         Name = "MainForm";
         StartPosition = FormStartPosition.CenterScreen;
         Text = "T-SQL解析ツール";
+        Deactivate += MainForm_Deactivate;
         mainLayoutPanel.ResumeLayout(false);
         mainLayoutPanel.PerformLayout();
         buttonPanel.ResumeLayout(false);

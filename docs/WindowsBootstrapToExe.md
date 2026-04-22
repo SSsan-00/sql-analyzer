@@ -230,7 +230,12 @@ WITH recent_orders AS (
 )
 SELECT
     ro.UserId,
-    invoice_total.TotalAmount
+    invoice_total.TotalAmount,
+    CASE
+        WHEN invoice_total.TotalAmount >= 1000 THEN 'High'
+        WHEN invoice_total.TotalAmount > 0 THEN 'Normal'
+        ELSE 'None'
+    END AS AmountBand
 FROM recent_orders ro
 INNER JOIN (
     SELECT
@@ -245,7 +250,11 @@ WHERE EXISTS (
     SELECT 1
     FROM dbo.Payments p
     WHERE p.UserId = ro.UserId
-);
+)
+  AND CASE
+          WHEN invoice_total.TotalAmount > 0 THEN 1
+          ELSE 0
+      END = 1;
 ```
 
 確認ポイント:
@@ -264,16 +273,20 @@ WHERE EXISTS (
 - TreeView 上で `Ctrl+F` を押すとツリー検索欄へ移動し、`F3` / `Shift+F3` で一致ノードを移動できる
 - `結合先の内部構造` が表示される
 - `取得項目` 配下に `別名` が表示される
+- `取得項目` 配下に `CASE式` が表示され、`条件式` と `結果` が分かれて確認できる
 - `取得項目` 配下にワイルドカード項目の修飾子が表示される
 - `集合演算` 配下に `概要` `左概要` `右概要` が表示される
 - `集合演算` 配下に `子集合演算数` が表示される
 - `抽出条件` 配下に `条件論理` が表示される
 - `条件論理` 配下に `EXISTS` `NOT EXISTS` `IN` `NOT IN` が表示される
+- `抽出条件` や `ON条件` 配下に `CASE式` が表示され、`値比較CASE` と `条件式CASE` が分かれて確認できる
 - `条件論理` 配下に `範囲: NOT BETWEEN` や `LIKE: NOT LIKE` が表示される
 - `入力元` 配下に `列と値の対応` が表示される
 - SQL 入力欄で `Ctrl+F` による検索ができる
 - SQL 入力欄と解析結果ツリーの選択が相互に連動する
-- TreeView で選択したノードに対応する SQL 断片が、選択と淡い背景色で強調される
+- TreeView で選択したノードに対応する SQL 断片が、選択と黄色背景で強調される
+- TreeView から別コントロールや別アプリへフォーカスを移すと、SQL 側の黄色背景が残らず解除される
+- 通常テーブルのソースでは `分類: 通常ソース` が表示されない
 - 右下の `全文表示` で選択ノードの SQL 全文を確認できる
 
 ## つまずきやすい点

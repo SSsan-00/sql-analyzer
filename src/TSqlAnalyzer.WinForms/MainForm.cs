@@ -394,7 +394,26 @@ public partial class MainForm : Form
             return;
         }
 
+        ClearSqlLinkedHighlight();
         SyncTreeSelectionFromSql();
+    }
+
+    /// <summary>
+    /// TreeView から別コントロールへ移動したら、SQL 側の一時ハイライトを解除する。
+    /// 選択連動の文脈が切れた後に黄色い背景だけが残る状態を避ける。
+    /// </summary>
+    private void ResultTreeView_Leave(object? sender, EventArgs e)
+    {
+        ClearSqlLinkedHighlight();
+    }
+
+    /// <summary>
+    /// アプリ外へフォーカスが移った場合も、SQL 側の一時ハイライトを解除する。
+    /// TreeView の選択関係を確認している間だけ黄色背景を残し、文脈が切れたら消す。
+    /// </summary>
+    private void MainForm_Deactivate(object? sender, EventArgs e)
+    {
+        ClearSqlLinkedHighlight();
     }
 
     /// <summary>
@@ -577,7 +596,7 @@ public partial class MainForm : Form
     }
 
     /// <summary>
-    /// TreeView 選択に対応する SQL 範囲へ淡い背景色を付ける。
+    /// TreeView 選択に対応する SQL 範囲へ黄色の背景色を付ける。
     /// 選択色だけに頼らず、TreeView から戻ったときも対応箇所を見つけやすくする。
     /// </summary>
     private void ApplySqlLinkedHighlight(TextSpan sourceSpan)

@@ -77,6 +77,111 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// SELECT 項目の CASE 式を値比較 CASE と条件式 CASE に分けて解析できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_SelectWithCaseExpressions_ReturnsCaseExpressionDetails()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               CASE u.Status
+                                   WHEN 'A' THEN 'Active'
+                                   WHEN 'S' THEN 'Stopped'
+                                   ELSE 'Unknown'
+                               END AS StatusName,
+                               CASE
+                                   WHEN o.Amount >= 1000 THEN 'High'
+                                   WHEN o.Amount > 0 THEN 'Normal'
+                                   ELSE 'None'
+                               END AS AmountBand
+                           FROM dbo.Users u
+                           LEFT JOIN dbo.Orders o
+                               ON u.Id = o.UserId;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+
+        var simpleCase = Assert.Single(query.SelectItems[0].CaseExpressions);
+        Assert.Equal(CaseExpressionKind.Simple, simpleCase.Kind);
+        Assert.Equal("u.Status", simpleCase.InputExpressionText);
+        Assert.Equal("'Unknown'", simpleCase.ElseExpressionText);
+        Assert.Collection(
+            simpleCase.WhenClauses,
+            clause =>
+            {
+                Assert.Equal("'A'", clause.WhenText);
+                Assert.Equal("'Active'", clause.ThenText);
+            },
+            clause =>
+            {
+                Assert.Equal("'S'", clause.WhenText);
+                Assert.Equal("'Stopped'", clause.ThenText);
+            });
+
+        var searchedCase = Assert.Single(query.SelectItems[1].CaseExpressions);
+        Assert.Equal(CaseExpressionKind.Searched, searchedCase.Kind);
+        Assert.Null(searchedCase.InputExpressionText);
+        Assert.Equal("'None'", searchedCase.ElseExpressionText);
+        Assert.Collection(
+            searchedCase.WhenClauses,
+            clause =>
+            {
+                Assert.Equal("o.Amount >= 1000", clause.WhenText);
+                Assert.Equal("'High'", clause.ThenText);
+            },
+            clause =>
+            {
+                Assert.Equal("o.Amount > 0", clause.WhenText);
+                Assert.Equal("'Normal'", clause.ThenText);
+            });
+    }
+
+    /// <summary>
+    /// WHERE と JOIN ON の条件内にある CASE 式も、条件ノード側へ保持されることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_ConditionsWithCaseExpressions_ReturnsCaseExpressionDetails()
+    {
+        var service = CreateService();
+        const string sql = """
+                           SELECT
+                               u.Id
+                           FROM dbo.Users u
+                           LEFT JOIN dbo.Orders o
+                               ON CASE
+                                      WHEN o.Amount > 0 THEN o.UserId
+                                      ELSE NULL
+                                  END = u.Id
+                           WHERE CASE u.Status
+                                     WHEN 'A' THEN 1
+                                     ELSE 0
+                                 END = 1;
+                           """;
+
+        var result = service.Analyze(sql);
+        var query = Assert.IsType<SelectQueryAnalysis>(result.Query);
+
+        Assert.NotNull(query.WhereCondition);
+        var whereCondition = query.WhereCondition;
+        var whereCase = Assert.Single(whereCondition.CaseExpressions);
+        Assert.Equal(CaseExpressionKind.Simple, whereCase.Kind);
+        Assert.Equal("u.Status", whereCase.InputExpressionText);
+        Assert.Equal("1", whereCase.WhenClauses[0].ThenText);
+
+        var whereNodeCase = Assert.Single(whereCondition.RootNode.CaseExpressions);
+        Assert.Equal(CaseExpressionKind.Simple, whereNodeCase.Kind);
+
+        var join = Assert.Single(query.Joins);
+        var joinPart = Assert.Single(join.OnConditionParts);
+        var joinCase = Assert.Single(joinPart.CaseExpressions);
+        Assert.Equal(CaseExpressionKind.Searched, joinCase.Kind);
+        Assert.Equal("o.Amount > 0", joinCase.WhenClauses[0].WhenText);
+        Assert.Equal("o.UserId", joinCase.WhenClauses[0].ThenText);
+    }
+
+    /// <summary>
     /// SELECT / JOIN / WHERE / HAVING の各式から参照列を抽出し、別名からソースへ解決できることを確認する。
     /// </summary>
     [Fact]
