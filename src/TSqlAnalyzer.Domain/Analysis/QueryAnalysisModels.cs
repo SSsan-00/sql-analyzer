@@ -2,7 +2,7 @@ namespace TSqlAnalyzer.Domain.Analysis;
 
 /// <summary>
 /// 解析結果全体の状態を表す。
-/// 初期版では「正常にSELECT系を解析できたか」「未対応か」「入力不備か」を
+/// 「正常にSELECT系を解析できたか」「未対応か」「入力不備か」を
 /// 呼び出し元が明確に判定できるよう、文種別を独立して保持する。
 /// </summary>
 public enum QueryStatementCategory
@@ -146,7 +146,7 @@ public enum InsertSourceKind
 
 /// <summary>
 /// CREATE 文の種別。
-/// 初期版では VIEW と TABLE を対象にし、他の CREATE 種別は将来拡張へ回す。
+/// 現時点では VIEW と TABLE を対象にし、他の CREATE 種別は将来拡張へ回す。
 /// </summary>
 public enum CreateStatementKind
 {
@@ -156,7 +156,7 @@ public enum CreateStatementKind
 
 /// <summary>
 /// WHERE / HAVING などで検出したサブクエリ系述語の種別。
-/// 初期版では EXISTS 系と IN 系を優先して区別する。
+/// 現時点では EXISTS 系と IN 系を優先して区別する。
 /// </summary>
 public enum ConditionMarkerType
 {
@@ -379,7 +379,7 @@ public sealed record CreateTableAnalysis(
 
 /// <summary>
 /// CREATE TABLE の列定義 1 件分を表す。
-/// 初期版では列名、データ型、NULL 許可の有無に絞って保持する。
+/// 現時点では列名、データ型、NULL 許可の有無に絞って保持する。
 /// </summary>
 public sealed record CreateTableColumnAnalysis(
     int Sequence,
@@ -669,7 +669,7 @@ public sealed record GroupByItemAnalysis(
 
 /// <summary>
 /// 条件式の中で検出した注目ポイント。
-/// 将来は論理木へ発展させる余地を残しつつ、初期版では種類と表示文字列を優先する。
+/// 将来は論理木へ発展させる余地を残しつつ、現時点では種類と表示文字列を優先する。
 /// </summary>
 public sealed record ConditionMarker(
     ConditionMarkerType MarkerType,
@@ -706,7 +706,7 @@ public sealed record OrderByItemAnalysis(
 
 /// <summary>
 /// ORDER BY の情報。
-/// 初期版では表示に必要な順序項目をそのまま保持する。
+/// 現時点では表示に必要な順序項目をそのまま保持する。
 /// </summary>
 public sealed record OrderByAnalysis(
     IReadOnlyList<string> Items,

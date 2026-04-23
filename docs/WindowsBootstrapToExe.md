@@ -3,6 +3,11 @@
 このドキュメントは、リポジトリを clone できない端末向けの手順書。
 `TSqlAnalyzer.Bootstrap.csproj` という 1 ファイルだけを保存し、その後にプロダクションコードの展開、build、`exe` 生成、起動確認まで進める流れをまとめる。
 
+関連ドキュメント:
+
+- `README.md`
+- `docs/CodeReadingGuide.md`
+
 ## 最初に押さえるポイント
 
 - bootstrap 展開物には `tests/` を含めない
@@ -207,6 +212,7 @@ bootstrap 展開物に含まれるのは次の系統。
 
 - `TSqlAnalyzer.Runtime.slnx`
 - `README.md`
+- `docs/CodeReadingGuide.md`
 - `docs/WindowsBootstrapToExe.md`
 - `src/TSqlAnalyzer.Domain/**`
 - `src/TSqlAnalyzer.Application/**`

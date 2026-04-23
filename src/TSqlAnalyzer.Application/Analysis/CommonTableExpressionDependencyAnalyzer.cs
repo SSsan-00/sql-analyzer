@@ -224,7 +224,7 @@ internal static class CommonTableExpressionDependencyAnalyzer
 
     /// <summary>
     /// CREATE 文以下から参照されている CTE 名を蓄積する。
-    /// 初期版では内部クエリを持つ VIEW と CTAS を対象にする。
+    /// 現時点では内部クエリを持つ VIEW と CTAS を対象にする。
     /// </summary>
     private static void CollectReferencedNames(CreateStatementAnalysis createStatement, ISet<string> names)
     {

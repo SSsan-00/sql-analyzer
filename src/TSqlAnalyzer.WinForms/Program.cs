@@ -8,7 +8,7 @@ namespace TSqlAnalyzer.WinForms;
 
 /// <summary>
 /// アプリケーションの起動点。
-/// 初期版ではここで依存関係を手動で組み立て、MainForm へ渡す。
+/// ここで依存関係を手動で組み立て、MainForm へ渡す。
 /// </summary>
 internal static class Program
 {

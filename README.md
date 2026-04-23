@@ -1,10 +1,10 @@
 # T-SQL解析ツール
 
-巨大で複雑な T-SQL クエリを、構文上の事実にもとづいて分解し、読みやすい TreeView で追えるようにする WinForms ツールの初期実装。
+巨大で複雑な T-SQL クエリを、構文上の事実にもとづいて分解し、読みやすい TreeView で追えるようにする WinForms ツール。
 
 このリポジトリは、最終的に利用者へ `exe` 配布することを見据えつつ、開発段階では `dotnet build` / `dotnet test` を回しながら育てやすい土台を用意することを目的とする。
 
-## この初期版でできること
+## できること
 
 - WinForms 画面を起動し、T-SQL を貼り付けて解析できる
 - 「解析」ボタンで解析サービスを呼び出し、結果を TreeView に表示できる
@@ -69,7 +69,7 @@
 - TreeView で選択したノードの全文を下部ペインで確認できる
 - `列情報エクスポート` ボタンで、SELECT 取得項目、INSERT 挿入先列と入力元、UPDATE 更新列と SET 値をテキストファイルへ保存できる
 
-## この初期版でまだ未対応のこと
+## まだ未対応のこと
 
 - MERGE の詳細解析
 - CREATE FUNCTION / PROCEDURE / TRIGGER / INDEX
@@ -88,6 +88,13 @@
 - ストアドプロシージャ全体の制御フロー解析
 - 集合演算ごとの列構成差の要約表示
 
+## ドキュメント
+
+- `docs/WindowsBootstrapToExe.md`
+  - Windows で clone 済みソースまたは bootstrap から `exe` を作る手順
+- `docs/CodeReadingGuide.md`
+  - 開発者向けのコードリーディング入口、責務分割、主要フローの追い方
+
 ## 設計方針
 
 - UI ロジックと解析ロジックを分離する
@@ -97,6 +104,41 @@
 - JOIN 先は「テーブル」ではなく「ソース」として扱い、将来の派生テーブルや集合演算結果に広げやすくする
 - 集合演算は左右のクエリを再帰的に保持する形にする
 - 解析モデルに位置情報を持たせ、入力欄と解析結果の選択連動に使えるようにする
+
+## 整形の例
+
+整形機能は `整形` ボタンまたは `Ctrl+Shift+F` で実行できる。句単位の改行だけでなく、`CASE`、サブクエリ、`JOIN ... ON`、`LIKE / BETWEEN / IS NULL` に複雑式が入った条件も多段で見える形へ揃える。
+
+整形前:
+
+```sql
+select u.Id from dbo.Users u where case when u.Status='A' then u.Name else u.Code end like isnull((select top 1 p.Pattern from dbo.Patterns p where p.UserId=u.Id order by p.Priority),u.Name)
+```
+
+整形後:
+
+```sql
+SELECT
+    u.Id
+FROM dbo.Users AS u
+WHERE
+    CASE
+        WHEN u.Status = 'A' THEN u.Name
+        ELSE u.Code
+    END LIKE
+        isnull(
+            (
+                SELECT TOP 1
+                    p.Pattern
+                FROM dbo.Patterns AS p
+                WHERE
+                    p.UserId = u.Id
+                ORDER BY
+                    p.Priority
+            ),
+            u.Name
+        );
+```
 
 ## 列情報エクスポートの出力仕様
 

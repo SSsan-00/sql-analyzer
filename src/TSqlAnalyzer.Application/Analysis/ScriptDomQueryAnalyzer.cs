@@ -133,7 +133,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
 
     /// <summary>
     /// ScriptDom が返した断片から、先頭の文だけを取り出す。
-    /// 初期版では複数文対応を広げすぎず、先頭文を対象にする。
+    /// 現時点では複数文対応を広げすぎず、先頭文を対象にする。
     /// </summary>
     private static TSqlStatement? GetFirstStatement(TSqlFragment fragment, ICollection<AnalysisNotice> notices)
     {
@@ -1290,7 +1290,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             {
                 _notices.Add(new AnalysisNotice(
                     AnalysisNoticeLevel.Information,
-                    "集合演算の末尾にある ORDER BY は解析済みですが、初期版の表示では集合演算ノード内の主要情報を優先しています。"));
+                    "集合演算の末尾にある ORDER BY は解析済みですが、表示では集合演算ノード内の主要情報を優先しています。"));
             }
 
             return new SetOperationQueryAnalysis(
@@ -1349,7 +1349,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                     {
                         _notices.Add(new AnalysisNotice(
                             AnalysisNoticeLevel.Warning,
-                            "APPLY は初期版の対象外です。JOIN 一覧には補足として表示します。"));
+                            "APPLY は現在の解析対象外です。JOIN 一覧には補足として表示します。"));
                     }
 
                     joins.Add(new JoinAnalysis(
@@ -1494,7 +1494,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
 
         /// <summary>
         /// CREATE TABLE の列定義 1 件分を解析する。
-        /// 初期版では列名、データ型、NULL 許可の有無に絞って保持する。
+        /// 現時点では列名、データ型、NULL 許可の有無に絞って保持する。
         /// </summary>
         private CreateTableColumnAnalysis AnalyzeCreateTableColumn(ColumnDefinition columnDefinition, int sequence)
         {

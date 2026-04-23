@@ -2,6 +2,7 @@
 .gitignore
 README.md
 TSqlAnalyzer.Runtime.slnx
+docs/CodeReadingGuide.md
 docs/WindowsBootstrapToExe.md
 src/TSqlAnalyzer.Domain/TSqlAnalyzer.Domain.csproj
 src/TSqlAnalyzer.Domain/Analysis/QueryAnalysisModels.cs
