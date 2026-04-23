@@ -1,5 +1,6 @@
 using System.Text;
 using TSqlAnalyzer.Application.Export;
+using TSqlAnalyzer.Application.Formatting;
 using TSqlAnalyzer.Application.Presentation;
 using TSqlAnalyzer.Application.Services;
 using TSqlAnalyzer.Domain.Analysis;
@@ -21,6 +22,7 @@ public partial class MainForm : Form
     private readonly IQueryAnalysisService _analysisService;
     private readonly QueryAnalysisTreeBuilder _treeBuilder;
     private readonly ColumnTextExportBuilder _columnTextExportBuilder;
+    private readonly SqlFormattingService _sqlFormattingService;
 
     private QueryAnalysisResult? _currentAnalysis;
     private DisplayTreeNode? _currentTree;
@@ -38,11 +40,13 @@ public partial class MainForm : Form
     public MainForm(
         IQueryAnalysisService analysisService,
         QueryAnalysisTreeBuilder treeBuilder,
-        ColumnTextExportBuilder columnTextExportBuilder)
+        ColumnTextExportBuilder columnTextExportBuilder,
+        SqlFormattingService sqlFormattingService)
     {
         _analysisService = analysisService;
         _treeBuilder = treeBuilder;
         _columnTextExportBuilder = columnTextExportBuilder;
+        _sqlFormattingService = sqlFormattingService;
 
         InitializeComponent();
         ConfigureResultTreeViewVisuals();
@@ -62,6 +66,51 @@ public partial class MainForm : Form
     /// 入力 SQL を解析し、TreeView 用モデルへ変換して画面へ反映する。
     /// </summary>
     private void AnalyzeButton_Click(object? sender, EventArgs e)
+    {
+        AnalyzeCurrentSql();
+    }
+
+    /// <summary>
+    /// 入力欄の SQL を整形する。
+    /// 整形後に既存解析結果があれば再解析し、位置連動の整合を保つ。
+    /// </summary>
+    private void FormatButton_Click(object? sender, EventArgs e)
+    {
+        var formatResult = _sqlFormattingService.Format(sqlTextBox.Text);
+        if (!formatResult.IsSuccess)
+        {
+            MessageBox.Show(
+                this,
+                BuildFormatFailureMessage(formatResult.ParseIssues),
+                "SQL整形",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        var formattedText = formatResult.FormattedSql.ReplaceLineEndings(Environment.NewLine);
+        var currentText = sqlTextBox.Text.ReplaceLineEndings(Environment.NewLine);
+        var shouldRefreshAnalysis = _currentTree is not null || resultTreeView.Nodes.Count > 0;
+
+        if (!string.Equals(formattedText, currentText, StringComparison.Ordinal))
+        {
+            ReplaceSqlEditorText(formattedText);
+        }
+
+        if (shouldRefreshAnalysis)
+        {
+            AnalyzeCurrentSql();
+            return;
+        }
+
+        ClearSqlLinkedHighlight();
+        UpdateDetailTextForSelection();
+    }
+
+    /// <summary>
+    /// 現在の入力欄を解析し、表示中の TreeView と詳細欄を更新する。
+    /// </summary>
+    private void AnalyzeCurrentSql()
     {
         var analysis = _analysisService.Analyze(sqlTextBox.Text);
         var tree = _treeBuilder.Build(analysis);
@@ -478,6 +527,36 @@ public partial class MainForm : Form
     /// </summary>
     private void SqlTextBox_KeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Control && e.Shift && e.KeyCode == Keys.F)
+        {
+            FormatButton_Click(sender, EventArgs.Empty);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if ((e.Control && e.KeyCode == Keys.Y)
+            || (e.Control && e.Shift && e.KeyCode == Keys.Z))
+        {
+            if (sqlTextBox.CanRedo)
+            {
+                sqlTextBox.Redo();
+            }
+
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.Control && e.KeyCode == Keys.Z)
+        {
+            if (sqlTextBox.CanUndo)
+            {
+                sqlTextBox.Undo();
+            }
+
+            e.SuppressKeyPress = true;
+            return;
+        }
+
         if (e.Control && e.KeyCode == Keys.F)
         {
             ShowFindPanel();
@@ -791,5 +870,65 @@ public partial class MainForm : Form
 
         clampedSpan = new TextSpan(sourceSpan.Start, length);
         return true;
+    }
+
+    /// <summary>
+    /// 整形済み SQL で入力欄全体を置き換える。
+    /// 全文選択への差し替えにまとめ、Undo で一括復元しやすくする。
+    /// </summary>
+    private void ReplaceSqlEditorText(string newText)
+    {
+        var selectionStart = Math.Min(sqlTextBox.SelectionStart, sqlTextBox.TextLength);
+
+        _suppressSqlSelectionSync = true;
+        try
+        {
+            ClearSqlLinkedHighlightCore();
+            sqlTextBox.SelectAll();
+            sqlTextBox.SelectedText = newText;
+
+            var restoredSelectionStart = Math.Min(selectionStart, sqlTextBox.TextLength);
+            sqlTextBox.Select(restoredSelectionStart, 0);
+        }
+        finally
+        {
+            _suppressSqlSelectionSync = false;
+        }
+    }
+
+    /// <summary>
+    /// 整形失敗時に表示するメッセージを組み立てる。
+    /// 先頭数件だけを並べ、長大なエラー一覧でダイアログが埋まらないようにする。
+    /// </summary>
+    private static string BuildFormatFailureMessage(IReadOnlyList<ParseIssue> parseIssues)
+    {
+        if (parseIssues.Count == 0)
+        {
+            return "SQL を整形できませんでした。";
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine("SQL を整形できませんでした。");
+        builder.AppendLine("構文エラーを修正してから再実行してください。");
+        builder.AppendLine();
+
+        foreach (var parseIssue in parseIssues.Take(5))
+        {
+            builder.Append("行 ");
+            builder.Append(parseIssue.Line);
+            builder.Append(" / 列 ");
+            builder.Append(parseIssue.Column);
+            builder.Append(": ");
+            builder.AppendLine(parseIssue.Message);
+        }
+
+        if (parseIssues.Count > 5)
+        {
+            builder.Append("ほか ");
+            builder.Append(parseIssues.Count - 5);
+            builder.Append(" 件");
+        }
+
+        return builder.ToString().TrimEnd();
     }
 }

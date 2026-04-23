@@ -283,6 +283,8 @@ WHERE EXISTS (
 - `条件論理` 配下に `範囲: NOT BETWEEN` や `LIKE: NOT LIKE` が表示される
 - `入力元` 配下に `列と値の対応` が表示される
 - SQL 入力欄で `Ctrl+F` による検索ができる
+- SQL 入力欄で `Ctrl+Z` / `Ctrl+Y` による Undo / Redo ができる
+- `整形` ボタンまたは `Ctrl+Shift+F` で SQL が複数行へ整形される
 - SQL 入力欄と解析結果ツリーの選択が相互に連動する
 - TreeView で選択したノードに対応する SQL 断片が、選択と黄色背景で強調される
 - TreeView から別コントロールや別アプリへフォーカスを移すと、SQL 側の黄色背景が残らず解除される

@@ -30,6 +30,7 @@ partial class MainForm
     private Button resultFilterClearButton = null!;
     private Button analyzeButton = null!;
     private Button clearButton = null!;
+    private Button formatButton = null!;
     private Button exportTextButton = null!;
     private RichTextBox sqlTextBox = null!;
     private TreeView resultTreeView = null!;
@@ -59,6 +60,7 @@ partial class MainForm
         buttonPanel = new FlowLayoutPanel();
         analyzeButton = new Button();
         clearButton = new Button();
+        formatButton = new Button();
         exportTextButton = new Button();
         mainSplitContainer = new SplitContainer();
         sqlTextBox = new RichTextBox();
@@ -114,6 +116,7 @@ partial class MainForm
         buttonPanel.AutoSize = true;
         buttonPanel.Controls.Add(analyzeButton);
         buttonPanel.Controls.Add(clearButton);
+        buttonPanel.Controls.Add(formatButton);
         buttonPanel.Controls.Add(exportTextButton);
         buttonPanel.Dock = DockStyle.Fill;
         buttonPanel.Location = new Point(12, 12);
@@ -150,16 +153,30 @@ partial class MainForm
         clearButton.UseVisualStyleBackColor = true;
         clearButton.Click += ClearButton_Click;
         //
+        // formatButton
+        // 入力 SQL を読みやすいレイアウトへ整形する。
+        //
+        formatButton.AutoSize = true;
+        formatButton.Location = new Point(180, 0);
+        formatButton.Margin = new Padding(8, 0, 0, 0);
+        formatButton.Name = "formatButton";
+        formatButton.Padding = new Padding(12, 6, 12, 6);
+        formatButton.Size = new Size(82, 41);
+        formatButton.TabIndex = 2;
+        formatButton.Text = "整形";
+        formatButton.UseVisualStyleBackColor = true;
+        formatButton.Click += FormatButton_Click;
+        //
         // exportTextButton
         // 解析済みの列情報をテキストファイルへエクスポートする。
         //
         exportTextButton.AutoSize = true;
-        exportTextButton.Location = new Point(180, 0);
+        exportTextButton.Location = new Point(270, 0);
         exportTextButton.Margin = new Padding(8, 0, 0, 0);
         exportTextButton.Name = "exportTextButton";
         exportTextButton.Padding = new Padding(12, 6, 12, 6);
         exportTextButton.Size = new Size(110, 41);
-        exportTextButton.TabIndex = 2;
+        exportTextButton.TabIndex = 3;
         exportTextButton.Text = "列情報エクスポート";
         exportTextButton.UseVisualStyleBackColor = true;
         exportTextButton.Click += ExportTextButton_Click;

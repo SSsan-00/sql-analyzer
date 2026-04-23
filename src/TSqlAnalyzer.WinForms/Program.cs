@@ -1,5 +1,6 @@
 using TSqlAnalyzer.Application.Analysis;
 using TSqlAnalyzer.Application.Export;
+using TSqlAnalyzer.Application.Formatting;
 using TSqlAnalyzer.Application.Presentation;
 using TSqlAnalyzer.Application.Services;
 
@@ -22,7 +23,12 @@ internal static class Program
         var analysisService = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
         var treeBuilder = new QueryAnalysisTreeBuilder();
         var columnTextExportBuilder = new ColumnTextExportBuilder();
+        var sqlFormattingService = new SqlFormattingService();
 
-        System.Windows.Forms.Application.Run(new MainForm(analysisService, treeBuilder, columnTextExportBuilder));
+        System.Windows.Forms.Application.Run(new MainForm(
+            analysisService,
+            treeBuilder,
+            columnTextExportBuilder,
+            sqlFormattingService));
     }
 }
