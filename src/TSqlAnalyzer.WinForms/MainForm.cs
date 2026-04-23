@@ -1,4 +1,5 @@
 using System.Text;
+using TSqlAnalyzer.Application.Editor;
 using TSqlAnalyzer.Application.Export;
 using TSqlAnalyzer.Application.Formatting;
 using TSqlAnalyzer.Application.Presentation;
@@ -18,21 +19,31 @@ public partial class MainForm : Form
     private static readonly Color TreeSearchBackColor = Color.FromArgb(255, 248, 190);
     private static readonly Color TreeSearchAccentColor = Color.FromArgb(230, 145, 30);
     private static readonly Color SqlLinkedHighlightBackColor = Color.FromArgb(255, 243, 150);
+    private static readonly Color SqlParseIssueHighlightBackColor = Color.FromArgb(255, 214, 214);
 
     private readonly IQueryAnalysisService _analysisService;
     private readonly QueryAnalysisTreeBuilder _treeBuilder;
     private readonly ColumnTextExportBuilder _columnTextExportBuilder;
     private readonly SqlFormattingService _sqlFormattingService;
+    private readonly ParseIssueTextSpanResolver _parseIssueTextSpanResolver;
+    private readonly SqlInputAssistService _sqlInputAssistService;
+    private readonly Panel _parseIssuePanel;
+    private readonly Label _parseIssueLabel;
+    private readonly ListBox _parseIssueListBox;
+    private readonly ListBox _completionListBox;
 
     private QueryAnalysisResult? _currentAnalysis;
     private DisplayTreeNode? _currentTree;
     private DisplayTreeNode? _displayedTree;
     private TextSpan? _highlightedSqlSpan;
+    private TextSpan? _parseIssueHighlightedSqlSpan;
     private string _treeSearchText = string.Empty;
     private bool _isTreeFilterActive;
     private bool _suppressSqlSelectionSync;
     private bool _suppressTreeSelectionSync;
     private bool _suppressTreeSearchTextChanged;
+    private bool _suppressCompletionRefresh;
+    private SqlInputAssistResult? _currentInputAssistResult;
 
     /// <summary>
     /// 必要なサービスを受け取って初期化する。
@@ -41,15 +52,31 @@ public partial class MainForm : Form
         IQueryAnalysisService analysisService,
         QueryAnalysisTreeBuilder treeBuilder,
         ColumnTextExportBuilder columnTextExportBuilder,
-        SqlFormattingService sqlFormattingService)
+        SqlFormattingService sqlFormattingService,
+        ParseIssueTextSpanResolver parseIssueTextSpanResolver,
+        SqlInputAssistService sqlInputAssistService)
     {
         _analysisService = analysisService;
         _treeBuilder = treeBuilder;
         _columnTextExportBuilder = columnTextExportBuilder;
         _sqlFormattingService = sqlFormattingService;
+        _parseIssueTextSpanResolver = parseIssueTextSpanResolver;
+        _sqlInputAssistService = sqlInputAssistService;
 
         InitializeComponent();
+        _parseIssuePanel = CreateParseIssuePanel();
+        _parseIssueLabel = CreateParseIssueLabel();
+        _parseIssueListBox = CreateParseIssueListBox();
+        _completionListBox = CreateCompletionListBox();
+        _parseIssuePanel.Controls.Add(_parseIssueListBox);
+        _parseIssuePanel.Controls.Add(_parseIssueLabel);
+        mainSplitContainer.Panel1.Controls.Add(_parseIssuePanel);
+        mainSplitContainer.Panel1.Controls.Add(_completionListBox);
+        _parseIssuePanel.BringToFront();
+        _completionListBox.BringToFront();
+
         ConfigureResultTreeViewVisuals();
+        ConfigureEditorAssistControls();
     }
 
     /// <summary>
@@ -59,6 +86,85 @@ public partial class MainForm : Form
     private void ConfigureResultTreeViewVisuals()
     {
         resultTreeView.ImageList = TreeViewImageListFactory.Create(components);
+    }
+
+    /// <summary>
+    /// SQL 入力欄に対するエラー表示と入力補助の補助 UI を初期化する。
+    /// オーバーレイ方式にして、既存レイアウトへの影響を最小化する。
+    /// </summary>
+    private void ConfigureEditorAssistControls()
+    {
+        sqlTextBox.TextChanged += SqlTextBox_TextChanged;
+        mainSplitContainer.Panel1.Resize += InputPane_Resize;
+        sqlTextBox.Resize += InputPane_Resize;
+        UpdateEditorOverlayLayout();
+    }
+
+    /// <summary>
+    /// 構文エラー一覧を表示するオーバーレイパネルを作る。
+    /// </summary>
+    private static Panel CreateParseIssuePanel()
+    {
+        return new Panel
+        {
+            BackColor = Color.FromArgb(255, 246, 246),
+            BorderStyle = BorderStyle.FixedSingle,
+            Padding = new Padding(8),
+            Visible = false
+        };
+    }
+
+    /// <summary>
+    /// 構文エラー一覧の見出しラベルを作る。
+    /// </summary>
+    private static Label CreateParseIssueLabel()
+    {
+        return new Label
+        {
+            AutoSize = true,
+            Dock = DockStyle.Top,
+            Font = new Font("Yu Gothic UI", 9F, FontStyle.Bold),
+            Padding = new Padding(0, 0, 0, 6),
+            Text = "構文エラー"
+        };
+    }
+
+    /// <summary>
+    /// 構文エラー一覧本体を作る。
+    /// 選択変更で SQL 側の該当位置へ移動できるようにする。
+    /// </summary>
+    private ListBox CreateParseIssueListBox()
+    {
+        var listBox = new ListBox
+        {
+            Dock = DockStyle.Fill,
+            Font = new Font("Consolas", 10F),
+            HorizontalScrollbar = true,
+            IntegralHeight = false
+        };
+
+        listBox.SelectedIndexChanged += ParseIssueListBox_SelectedIndexChanged;
+        listBox.DoubleClick += ParseIssueListBox_DoubleClick;
+        return listBox;
+    }
+
+    /// <summary>
+    /// 補完候補を表示するポップアップ一覧を作る。
+    /// SQL 入力欄の近くへ重ねて表示し、Ctrl+Space や矢印キーで選べるようにする。
+    /// </summary>
+    private ListBox CreateCompletionListBox()
+    {
+        var listBox = new ListBox
+        {
+            Font = new Font("Consolas", 10F),
+            HorizontalScrollbar = true,
+            IntegralHeight = false,
+            Visible = false
+        };
+
+        listBox.Click += CompletionListBox_Click;
+        listBox.DoubleClick += CompletionListBox_DoubleClick;
+        return listBox;
     }
 
     /// <summary>
@@ -79,18 +185,17 @@ public partial class MainForm : Form
         var formatResult = _sqlFormattingService.Format(sqlTextBox.Text);
         if (!formatResult.IsSuccess)
         {
-            MessageBox.Show(
-                this,
-                BuildFormatFailureMessage(formatResult.ParseIssues),
-                "SQL整形",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
+            ShowParseIssues(formatResult.ParseIssues);
+            HideCompletionPopup();
             return;
         }
 
         var formattedText = formatResult.FormattedSql.ReplaceLineEndings(Environment.NewLine);
         var currentText = sqlTextBox.Text.ReplaceLineEndings(Environment.NewLine);
         var shouldRefreshAnalysis = _currentTree is not null || resultTreeView.Nodes.Count > 0;
+
+        HideCompletionPopup();
+        ClearParseIssues();
 
         if (!string.Equals(formattedText, currentText, StringComparison.Ordinal))
         {
@@ -112,6 +217,8 @@ public partial class MainForm : Form
     /// </summary>
     private void AnalyzeCurrentSql()
     {
+        HideCompletionPopup();
+
         var analysis = _analysisService.Analyze(sqlTextBox.Text);
         var tree = _treeBuilder.Build(analysis);
 
@@ -131,6 +238,7 @@ public partial class MainForm : Form
         }
 
         ClearSqlLinkedHighlight();
+        ShowParseIssues(analysis.ParseIssues);
         AnalysisTreeViewBinder.Bind(resultTreeView, tree);
         UpdateDetailText(resultTreeView.SelectedNode);
         SyncTreeSelectionFromSql();
@@ -147,12 +255,15 @@ public partial class MainForm : Form
         _isTreeFilterActive = false;
         _treeSearchText = string.Empty;
         _highlightedSqlSpan = null;
+        _parseIssueHighlightedSqlSpan = null;
         sqlTextBox.Clear();
         resultTreeView.Nodes.Clear();
         detailTextBox.Clear();
         findTextBox.Clear();
         resultSearchTextBox.Clear();
         findPanel.Visible = false;
+        HideCompletionPopup();
+        ClearParseIssues();
         sqlTextBox.Focus();
     }
 
@@ -500,6 +611,15 @@ public partial class MainForm : Form
             return;
         }
 
+        if (sqlTextBox.SelectionLength > 0)
+        {
+            HideCompletionPopup();
+        }
+        else if (_completionListBox.Visible)
+        {
+            UpdateCompletionPopupLocation();
+        }
+
         ClearSqlLinkedHighlight();
         SyncTreeSelectionFromSql();
     }
@@ -523,10 +643,377 @@ public partial class MainForm : Form
     }
 
     /// <summary>
+    /// SQL が編集されたら、古い構文エラー表示を外し、補完ポップアップを必要に応じて更新する。
+    /// 編集後の行位置に合わせてオーバーレイ位置も更新する。
+    /// </summary>
+    private void SqlTextBox_TextChanged(object? sender, EventArgs e)
+    {
+        ClearParseIssues();
+        UpdateEditorOverlayLayout();
+
+        if (_suppressCompletionRefresh)
+        {
+            return;
+        }
+
+        if (_completionListBox.Visible)
+        {
+            RefreshCompletionPopup();
+        }
+    }
+
+    /// <summary>
+    /// 入力欄まわりのサイズが変わったら、エラー一覧と補完ポップアップの表示位置を補正する。
+    /// </summary>
+    private void InputPane_Resize(object? sender, EventArgs e)
+    {
+        UpdateEditorOverlayLayout();
+    }
+
+    /// <summary>
+    /// 構文エラー一覧を表示し、先頭エラーへ自動移動する。
+    /// 行・列だけでなく入力欄上の赤ハイライトも付け、原因箇所を見つけやすくする。
+    /// </summary>
+    private void ShowParseIssues(IReadOnlyList<ParseIssue> parseIssues)
+    {
+        ClearSqlParseIssueHighlight();
+
+        _parseIssueListBox.BeginUpdate();
+        try
+        {
+            _parseIssueListBox.Items.Clear();
+
+            foreach (var parseIssue in parseIssues)
+            {
+                _parseIssueListBox.Items.Add(new ParseIssueListItem(parseIssue));
+            }
+        }
+        finally
+        {
+            _parseIssueListBox.EndUpdate();
+        }
+
+        _parseIssuePanel.Visible = parseIssues.Count > 0;
+        _parseIssueLabel.Text = parseIssues.Count switch
+        {
+            0 => "構文エラー",
+            1 => "構文エラー 1件",
+            _ => $"構文エラー {parseIssues.Count}件"
+        };
+
+        UpdateEditorOverlayLayout();
+
+        if (parseIssues.Count == 0)
+        {
+            return;
+        }
+
+        _parseIssueListBox.SelectedIndex = 0;
+        FocusParseIssue(parseIssues[0]);
+    }
+
+    /// <summary>
+    /// 構文エラー一覧と赤ハイライトを解除する。
+    /// SQL 編集後に位置情報が古くならないよう、再解析前の表示は残さない。
+    /// </summary>
+    private void ClearParseIssues()
+    {
+        ClearSqlParseIssueHighlight();
+
+        if (_parseIssueListBox.Items.Count > 0)
+        {
+            _parseIssueListBox.BeginUpdate();
+            try
+            {
+                _parseIssueListBox.Items.Clear();
+            }
+            finally
+            {
+                _parseIssueListBox.EndUpdate();
+            }
+        }
+
+        _parseIssuePanel.Visible = false;
+    }
+
+    /// <summary>
+    /// エラー一覧の選択変更時に、対応する SQL 位置へ移動する。
+    /// </summary>
+    private void ParseIssueListBox_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        if (_parseIssueListBox.SelectedItem is ParseIssueListItem item)
+        {
+            FocusParseIssue(item.ParseIssue);
+        }
+    }
+
+    /// <summary>
+    /// ダブルクリック時は SQL 入力欄へ戻し、修正作業へすぐ移れるようにする。
+    /// </summary>
+    private void ParseIssueListBox_DoubleClick(object? sender, EventArgs e)
+    {
+        if (_parseIssueListBox.SelectedItem is ParseIssueListItem item)
+        {
+            FocusParseIssue(item.ParseIssue);
+            sqlTextBox.Focus();
+        }
+    }
+
+    /// <summary>
+    /// 構文エラー 1 件を入力欄上で赤く強調表示する。
+    /// TreeView 連動ハイライトとは別扱いにし、構文エラーを明確に見せる。
+    /// </summary>
+    private void FocusParseIssue(ParseIssue parseIssue)
+    {
+        if (!_parseIssueTextSpanResolver.TryResolve(sqlTextBox.Text, parseIssue, out var sourceSpan))
+        {
+            ClearSqlParseIssueHighlight();
+            return;
+        }
+
+        if (!TryClampSpan(sourceSpan, out var clampedSpan))
+        {
+            ClearSqlParseIssueHighlight();
+            return;
+        }
+
+        _suppressSqlSelectionSync = true;
+        try
+        {
+            ClearSqlLinkedHighlightCore();
+            ClearSqlParseIssueHighlightCore();
+            ApplySqlHighlight(clampedSpan, SqlParseIssueHighlightBackColor);
+            _parseIssueHighlightedSqlSpan = clampedSpan;
+            sqlTextBox.Select(clampedSpan.Start, clampedSpan.Length);
+            sqlTextBox.ScrollToCaret();
+        }
+        finally
+        {
+            _suppressSqlSelectionSync = false;
+        }
+    }
+
+    /// <summary>
+    /// 構文エラー用の赤ハイライトを消す。
+    /// </summary>
+    private void ClearSqlParseIssueHighlight()
+    {
+        _suppressSqlSelectionSync = true;
+        try
+        {
+            ClearSqlParseIssueHighlightCore();
+        }
+        finally
+        {
+            _suppressSqlSelectionSync = false;
+        }
+    }
+
+    /// <summary>
+    /// 赤ハイライトの内部解除処理。
+    /// </summary>
+    private void ClearSqlParseIssueHighlightCore()
+    {
+        ClearSqlHighlightCore(ref _parseIssueHighlightedSqlSpan);
+    }
+
+    /// <summary>
+    /// Ctrl+Space や入力継続時に補完候補を更新して表示する。
+    /// </summary>
+    private void RefreshCompletionPopup()
+    {
+        var assistResult = _sqlInputAssistService.GetSuggestions(sqlTextBox.Text, sqlTextBox.SelectionStart);
+        _currentInputAssistResult = assistResult;
+
+        if (assistResult.Items.Count == 0)
+        {
+            HideCompletionPopup();
+            return;
+        }
+
+        _completionListBox.BeginUpdate();
+        try
+        {
+            _completionListBox.Items.Clear();
+
+            foreach (var item in assistResult.Items.Take(20))
+            {
+                _completionListBox.Items.Add(new CompletionListItem(item));
+            }
+        }
+        finally
+        {
+            _completionListBox.EndUpdate();
+        }
+
+        if (_completionListBox.Items.Count == 0)
+        {
+            HideCompletionPopup();
+            return;
+        }
+
+        _completionListBox.SelectedIndex = 0;
+        _completionListBox.Visible = true;
+        UpdateCompletionPopupLocation();
+    }
+
+    /// <summary>
+    /// 補完ポップアップを閉じる。
+    /// </summary>
+    private void HideCompletionPopup()
+    {
+        _completionListBox.Visible = false;
+        _completionListBox.Items.Clear();
+        _currentInputAssistResult = null;
+    }
+
+    /// <summary>
+    /// 補完候補の選択位置を上下へ動かす。
+    /// </summary>
+    private void MoveCompletionSelection(int delta)
+    {
+        if (!_completionListBox.Visible || _completionListBox.Items.Count == 0)
+        {
+            return;
+        }
+
+        var nextIndex = _completionListBox.SelectedIndex;
+        if (nextIndex < 0)
+        {
+            nextIndex = 0;
+        }
+        else
+        {
+            nextIndex = Math.Clamp(nextIndex + delta, 0, _completionListBox.Items.Count - 1);
+        }
+
+        _completionListBox.SelectedIndex = nextIndex;
+    }
+
+    /// <summary>
+    /// 現在選択中の補完候補を SQL 入力欄へ差し込む。
+    /// </summary>
+    private void CommitSelectedCompletionItem()
+    {
+        if (!_completionListBox.Visible
+            || _completionListBox.SelectedItem is not CompletionListItem completionListItem
+            || _currentInputAssistResult is null)
+        {
+            return;
+        }
+
+        _suppressCompletionRefresh = true;
+        _suppressSqlSelectionSync = true;
+        try
+        {
+            var replaceStart = Math.Clamp(_currentInputAssistResult.ReplaceStart, 0, sqlTextBox.TextLength);
+            var replaceLength = Math.Min(_currentInputAssistResult.ReplaceLength, sqlTextBox.TextLength - replaceStart);
+            sqlTextBox.Select(replaceStart, Math.Max(0, replaceLength));
+            sqlTextBox.SelectedText = completionListItem.Item.InsertText;
+            sqlTextBox.Select(replaceStart + completionListItem.Item.InsertText.Length, 0);
+        }
+        finally
+        {
+            _suppressSqlSelectionSync = false;
+            _suppressCompletionRefresh = false;
+        }
+
+        HideCompletionPopup();
+        sqlTextBox.Focus();
+    }
+
+    /// <summary>
+    /// 補完候補クリック時の反映処理。
+    /// </summary>
+    private void CompletionListBox_Click(object? sender, EventArgs e)
+    {
+        CommitSelectedCompletionItem();
+    }
+
+    /// <summary>
+    /// ダブルクリックでも同じく補完を確定する。
+    /// </summary>
+    private void CompletionListBox_DoubleClick(object? sender, EventArgs e)
+    {
+        CommitSelectedCompletionItem();
+    }
+
+    /// <summary>
+    /// SQL 入力欄上の補助オーバーレイ位置を更新する。
+    /// 検索バーの表示有無やフォームリサイズに追従させる。
+    /// </summary>
+    private void UpdateEditorOverlayLayout()
+    {
+        var overlayLeft = sqlTextBox.Left + 8;
+        var overlayTop = sqlTextBox.Top + 8;
+        var overlayWidth = Math.Max(220, sqlTextBox.Width - 16);
+
+        _parseIssuePanel.Bounds = new Rectangle(
+            overlayLeft,
+            overlayTop,
+            overlayWidth,
+            Math.Min(120, Math.Max(88, sqlTextBox.Height / 4)));
+
+        if (_completionListBox.Visible)
+        {
+            UpdateCompletionPopupLocation();
+        }
+    }
+
+    /// <summary>
+    /// 補完ポップアップをキャレット付近へ配置する。
+    /// </summary>
+    private void UpdateCompletionPopupLocation()
+    {
+        if (!_completionListBox.Visible)
+        {
+            return;
+        }
+
+        var caretIndex = Math.Min(sqlTextBox.SelectionStart, sqlTextBox.TextLength);
+        var caretPoint = sqlTextBox.GetPositionFromCharIndex(caretIndex);
+        var lineHeight = Math.Max(18, TextRenderer.MeasureText("A", sqlTextBox.Font).Height);
+        var width = Math.Min(420, Math.Max(260, sqlTextBox.Width / 2));
+        var height = Math.Min(220, Math.Max(80, _completionListBox.Items.Count * 18 + 8));
+        var left = sqlTextBox.Left + caretPoint.X + 4;
+        var top = sqlTextBox.Top + caretPoint.Y + lineHeight + 6;
+
+        left = Math.Min(left, Math.Max(sqlTextBox.Left + 8, mainSplitContainer.Panel1.ClientSize.Width - width - 12));
+        top = Math.Min(top, Math.Max(sqlTextBox.Top + 8, mainSplitContainer.Panel1.ClientSize.Height - height - 12));
+
+        _completionListBox.Bounds = new Rectangle(left, top, width, height);
+        _completionListBox.BringToFront();
+    }
+
+    /// <summary>
     /// SQL 入力欄で Ctrl+F が押されたら検索バーを開く。
     /// </summary>
     private void SqlTextBox_KeyDown(object? sender, KeyEventArgs e)
     {
+        if (_completionListBox.Visible)
+        {
+            switch (e.KeyCode)
+            {
+                case Keys.Up:
+                    MoveCompletionSelection(-1);
+                    e.SuppressKeyPress = true;
+                    return;
+                case Keys.Down:
+                    MoveCompletionSelection(1);
+                    e.SuppressKeyPress = true;
+                    return;
+                case Keys.Enter:
+                case Keys.Tab:
+                    CommitSelectedCompletionItem();
+                    e.SuppressKeyPress = true;
+                    return;
+                case Keys.Escape:
+                    HideCompletionPopup();
+                    e.SuppressKeyPress = true;
+                    return;
+            }
+        }
+
         if (e.Control && e.Shift && e.KeyCode == Keys.F)
         {
             FormatButton_Click(sender, EventArgs.Empty);
@@ -557,8 +1044,16 @@ public partial class MainForm : Form
             return;
         }
 
+        if (e.Control && e.KeyCode == Keys.Space)
+        {
+            RefreshCompletionPopup();
+            e.SuppressKeyPress = true;
+            return;
+        }
+
         if (e.Control && e.KeyCode == Keys.F)
         {
+            HideCompletionPopup();
             ShowFindPanel();
             e.SuppressKeyPress = true;
         }
@@ -675,6 +1170,7 @@ public partial class MainForm : Form
         try
         {
             ClearSqlLinkedHighlightCore();
+            ClearSqlParseIssueHighlightCore();
             ApplySqlLinkedHighlight(clampedSpan);
             _highlightedSqlSpan = clampedSpan;
             sqlTextBox.Select(clampedSpan.Start, clampedSpan.Length);
@@ -708,7 +1204,25 @@ public partial class MainForm : Form
     /// </summary>
     private void ClearSqlLinkedHighlightCore()
     {
-        if (_highlightedSqlSpan is null)
+        ClearSqlHighlightCore(ref _highlightedSqlSpan);
+    }
+
+    /// <summary>
+    /// TreeView 選択に対応する SQL 範囲へ黄色の背景色を付ける。
+    /// 選択色だけに頼らず、TreeView から戻ったときも対応箇所を見つけやすくする。
+    /// </summary>
+    private void ApplySqlLinkedHighlight(TextSpan sourceSpan)
+    {
+        ApplySqlHighlight(sourceSpan, SqlLinkedHighlightBackColor);
+    }
+
+    /// <summary>
+    /// 指定されたハイライト状態を元に戻す共通処理。
+    /// SQL 連動ハイライトと構文エラーハイライトの両方で使い回す。
+    /// </summary>
+    private void ClearSqlHighlightCore(ref TextSpan? highlightedSpan)
+    {
+        if (highlightedSpan is null)
         {
             return;
         }
@@ -716,13 +1230,13 @@ public partial class MainForm : Form
         var originalSelectionStart = sqlTextBox.SelectionStart;
         var originalSelectionLength = sqlTextBox.SelectionLength;
 
-        if (TryClampSpan(_highlightedSqlSpan, out var clampedSpan))
+        if (TryClampSpan(highlightedSpan, out var clampedSpan))
         {
             sqlTextBox.Select(clampedSpan.Start, clampedSpan.Length);
             sqlTextBox.SelectionBackColor = sqlTextBox.BackColor;
         }
 
-        _highlightedSqlSpan = null;
+        highlightedSpan = null;
 
         if (originalSelectionStart >= 0 && originalSelectionStart <= sqlTextBox.TextLength)
         {
@@ -732,13 +1246,12 @@ public partial class MainForm : Form
     }
 
     /// <summary>
-    /// TreeView 選択に対応する SQL 範囲へ黄色の背景色を付ける。
-    /// 選択色だけに頼らず、TreeView から戻ったときも対応箇所を見つけやすくする。
+    /// SQL 入力欄の任意範囲へ背景色ハイライトを付ける共通処理。
     /// </summary>
-    private void ApplySqlLinkedHighlight(TextSpan sourceSpan)
+    private void ApplySqlHighlight(TextSpan sourceSpan, Color backColor)
     {
         sqlTextBox.Select(sourceSpan.Start, sourceSpan.Length);
-        sqlTextBox.SelectionBackColor = SqlLinkedHighlightBackColor;
+        sqlTextBox.SelectionBackColor = backColor;
     }
 
     /// <summary>
@@ -778,6 +1291,7 @@ public partial class MainForm : Form
     private void ShowFindPanel()
     {
         findPanel.Visible = true;
+        UpdateEditorOverlayLayout();
 
         if (string.IsNullOrWhiteSpace(findTextBox.Text) && sqlTextBox.SelectionLength > 0)
         {
@@ -794,6 +1308,7 @@ public partial class MainForm : Form
     private void HideFindPanel()
     {
         findPanel.Visible = false;
+        UpdateEditorOverlayLayout();
         sqlTextBox.Focus();
     }
 
@@ -884,6 +1399,7 @@ public partial class MainForm : Form
         try
         {
             ClearSqlLinkedHighlightCore();
+            ClearSqlParseIssueHighlightCore();
             sqlTextBox.SelectAll();
             sqlTextBox.SelectedText = newText;
 
@@ -897,38 +1413,36 @@ public partial class MainForm : Form
     }
 
     /// <summary>
-    /// 整形失敗時に表示するメッセージを組み立てる。
-    /// 先頭数件だけを並べ、長大なエラー一覧でダイアログが埋まらないようにする。
+    /// 構文エラー一覧に保持する表示用アイテム。
+    /// ToString の整形を専用型へ閉じ込め、ListBox から生のモデルを分離する。
     /// </summary>
-    private static string BuildFormatFailureMessage(IReadOnlyList<ParseIssue> parseIssues)
+    private sealed record ParseIssueListItem(ParseIssue ParseIssue)
     {
-        if (parseIssues.Count == 0)
+        public override string ToString()
         {
-            return "SQL を整形できませんでした。";
+            return $"行 {ParseIssue.Line} / 列 {ParseIssue.Column}: {ParseIssue.Message}";
         }
+    }
 
-        var builder = new StringBuilder();
-        builder.AppendLine("SQL を整形できませんでした。");
-        builder.AppendLine("構文エラーを修正してから再実行してください。");
-        builder.AppendLine();
-
-        foreach (var parseIssue in parseIssues.Take(5))
+    /// <summary>
+    /// 補完候補一覧に保持する表示用アイテム。
+    /// 種別ラベルも一緒に表示し、候補の意味を見分けやすくする。
+    /// </summary>
+    private sealed record CompletionListItem(SqlInputAssistItem Item)
+    {
+        public override string ToString()
         {
-            builder.Append("行 ");
-            builder.Append(parseIssue.Line);
-            builder.Append(" / 列 ");
-            builder.Append(parseIssue.Column);
-            builder.Append(": ");
-            builder.AppendLine(parseIssue.Message);
-        }
+            var kindText = Item.Kind switch
+            {
+                SqlInputAssistItemKind.Keyword => "キーワード",
+                SqlInputAssistItemKind.CommonTableExpression => "CTE",
+                SqlInputAssistItemKind.SourceAlias => "別名",
+                SqlInputAssistItemKind.SelectAlias => "SELECT別名",
+                SqlInputAssistItemKind.Column => "列",
+                _ => "候補"
+            };
 
-        if (parseIssues.Count > 5)
-        {
-            builder.Append("ほか ");
-            builder.Append(parseIssues.Count - 5);
-            builder.Append(" 件");
+            return $"{Item.DisplayText}    [{kindText}]";
         }
-
-        return builder.ToString().TrimEnd();
     }
 }

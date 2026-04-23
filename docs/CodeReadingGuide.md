@@ -17,6 +17,10 @@
    - 解析モデルを TreeView 向け表示ノードへ変換する流れを読む
 6. `src/TSqlAnalyzer.WinForms/UI/AnalysisTreeViewBinder.cs`
    - 表示ノードを WinForms `TreeNode` へ落とし込む処理を読む
+7. `src/TSqlAnalyzer.Application/Editor/ParseIssueTextSpanResolver.cs`
+   - 構文エラーの行・列を SQL 文字範囲へ変換する処理を読む
+8. `src/TSqlAnalyzer.Application/Editor/SqlInputAssistService.cs`
+   - DB 非依存の入力補助候補を組み立てる処理を読む
 
 ## レイヤーごとの役割
 
@@ -35,6 +39,8 @@
   - 独自モデルから TreeView 表示用ノードへ変換する
 - `Formatting`
   - SQL 整形を担当する
+- `Editor`
+  - 構文エラー位置の解決と DB 非依存の入力補助を担当する
 - `Export`
   - 列情報エクスポートを担当する
 - `Services`
@@ -74,7 +80,16 @@
 
 SELECT / INSERT / UPDATE のどの情報をテキストへ落としているかを確認する入口になる。
 
-### 4. SQL と TreeView の相互選択
+### 4. 構文エラー表示と入力補助
+
+1. `MainForm.ShowParseIssues`
+2. `ParseIssueTextSpanResolver.TryResolve`
+3. `MainForm.RefreshCompletionPopup`
+4. `SqlInputAssistService.GetSuggestions`
+
+構文エラーの赤ハイライトと、`Ctrl+Space` から開く補完候補の組み立てを追える。
+
+### 5. SQL と TreeView の相互選択
 
 1. `MainForm` 内の SQL 選択イベント
 2. `DisplayTreeNodeNavigator`
