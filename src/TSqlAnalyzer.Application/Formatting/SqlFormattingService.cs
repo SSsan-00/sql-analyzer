@@ -355,14 +355,13 @@ public sealed class SqlFormattingService
                     lines.Add(
                         Indent(indentLevel + 1)
                         + "WHEN "
-                        + GenerateLeafScript(whenClause.WhenExpression)
-                        + " THEN "
-                        + GenerateLeafScript(whenClause.ThenExpression));
+                        + GenerateLeafScript(whenClause.WhenExpression));
+                    lines.AddRange(FormatCaseThenExpression(whenClause.ThenExpression, indentLevel + 2));
                 }
 
                 if (simpleCaseExpression.ElseExpression is not null)
                 {
-                    lines.Add(Indent(indentLevel + 1) + "ELSE " + GenerateLeafScript(simpleCaseExpression.ElseExpression));
+                    lines.AddRange(FormatCaseElseExpression(simpleCaseExpression.ElseExpression, indentLevel + 1));
                 }
 
                 break;
@@ -374,14 +373,13 @@ public sealed class SqlFormattingService
                     lines.Add(
                         Indent(indentLevel + 1)
                         + "WHEN "
-                        + GenerateLeafScript(whenClause.WhenExpression)
-                        + " THEN "
-                        + GenerateLeafScript(whenClause.ThenExpression));
+                        + GenerateLeafScript(whenClause.WhenExpression));
+                    lines.AddRange(FormatCaseThenExpression(whenClause.ThenExpression, indentLevel + 2));
                 }
 
                 if (searchedCaseExpression.ElseExpression is not null)
                 {
-                    lines.Add(Indent(indentLevel + 1) + "ELSE " + GenerateLeafScript(searchedCaseExpression.ElseExpression));
+                    lines.AddRange(FormatCaseElseExpression(searchedCaseExpression.ElseExpression, indentLevel + 1));
                 }
 
                 break;
@@ -391,6 +389,47 @@ public sealed class SqlFormattingService
         }
 
         lines.Add(Indent(indentLevel) + "END");
+        return lines;
+    }
+
+    /// <summary>
+    /// CASE の THEN 節を整形する。
+    /// 単純式は 1 行、複雑式は THEN 行と値ブロックを分ける。
+    /// </summary>
+    private List<string> FormatCaseThenExpression(ScalarExpression expression, int indentLevel)
+    {
+        if (!RequiresMultilineScalarExpression(expression))
+        {
+            return [Indent(indentLevel) + "THEN " + GenerateLeafScript(expression)];
+        }
+
+        var lines = new List<string>
+        {
+            Indent(indentLevel) + "THEN"
+        };
+
+        lines.AddRange(FormatScalarExpressionBlock(expression, indentLevel + 1));
+        return lines;
+    }
+
+    /// <summary>
+    /// CASE の ELSE 節を整形する。
+    /// 構造を強く見せるため、単純式でも ELSE と値を別行に分ける。
+    /// </summary>
+    private List<string> FormatCaseElseExpression(ScalarExpression expression, int indentLevel)
+    {
+        var lines = new List<string>
+        {
+            Indent(indentLevel) + "ELSE"
+        };
+
+        if (!RequiresMultilineScalarExpression(expression))
+        {
+            lines.Add(Indent(indentLevel + 1) + GenerateLeafScript(expression));
+            return lines;
+        }
+
+        lines.AddRange(FormatScalarExpressionBlock(expression, indentLevel + 1));
         return lines;
     }
 

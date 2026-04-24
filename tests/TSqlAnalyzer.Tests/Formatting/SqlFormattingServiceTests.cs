@@ -156,8 +156,10 @@ public sealed class SqlFormattingServiceTests
 
         var formatted = Normalize(result.FormattedSql);
         Assert.Matches("\\n\\s{4}CASE\\b", formatted);
-        Assert.Matches("\\n\\s{8}WHEN\\s+", formatted);
-        Assert.Matches("\\n\\s{8}ELSE\\s+", formatted);
+        Assert.Matches("\\n\\s{8}WHEN\\s+u\\.Status\\s*=\\s*'A'\\n", formatted);
+        Assert.Matches("\\n\\s{12}THEN\\s+'Active'", formatted);
+        Assert.Matches("\\n\\s{8}ELSE\\n", formatted);
+        Assert.Matches("\\n\\s{12}'Unknown'", formatted);
         Assert.Matches("\\n\\s{4}END\\s+AS\\s+StatusName", formatted);
         Assert.Matches("\\nUNION\\s+ALL\\n", formatted);
         Assert.Equal(2, Regex.Matches(formatted, "(^|\\n)SELECT\\b", RegexOptions.Multiline).Count);
@@ -246,13 +248,17 @@ public sealed class SqlFormattingServiceTests
         var formatted = Normalize(result.FormattedSql);
         Assert.Matches("\\n\\s{8}ON\\n", formatted);
         Assert.Matches("\\n\\s{12}CASE\\n", formatted);
-        Assert.Matches("\\n\\s{16}WHEN\\s+o\\.Amount\\s*>\\s*0\\s+THEN\\s+o\\.UserId", formatted);
-        Assert.Matches("\\n\\s{16}ELSE\\s+NULL", formatted);
+        Assert.Matches("\\n\\s{16}WHEN\\s+o\\.Amount\\s*>\\s*0\\n", formatted);
+        Assert.Matches("\\n\\s{20}THEN\\s+o\\.UserId", formatted);
+        Assert.Matches("\\n\\s{16}ELSE\\n", formatted);
+        Assert.Matches("\\n\\s{20}NULL", formatted);
         Assert.Matches("\\n\\s{12}END\\s*=\\s*u\\.Id", formatted);
         Assert.Matches("\\nWHERE\\n", formatted);
         Assert.Matches("\\n\\s{4}CASE\\n", formatted);
-        Assert.Matches("\\n\\s{8}WHEN\\s+u\\.Status\\s*=\\s*'A'\\s+THEN\\s+1", formatted);
-        Assert.Matches("\\n\\s{8}ELSE\\s+0", formatted);
+        Assert.Matches("\\n\\s{8}WHEN\\s+u\\.Status\\s*=\\s*'A'\\n", formatted);
+        Assert.Matches("\\n\\s{12}THEN\\s+1", formatted);
+        Assert.Matches("\\n\\s{8}ELSE\\n", formatted);
+        Assert.Matches("\\n\\s{12}0", formatted);
         Assert.Matches("\\n\\s{4}END\\s*=\\s*1", formatted);
     }
 
@@ -302,7 +308,8 @@ public sealed class SqlFormattingServiceTests
         var formatted = Normalize(result.FormattedSql);
         Assert.Matches("\\nWHERE\\n", formatted);
         Assert.Matches("\\n\\s{4}CASE\\n", formatted);
-        Assert.Matches("\\n\\s{8}WHEN\\s+u\\.Status\\s*=\\s*'A'\\s+THEN\\s+u\\.Name", formatted);
+        Assert.Matches("\\n\\s{8}WHEN\\s+u\\.Status\\s*=\\s*'A'\\n", formatted);
+        Assert.Matches("\\n\\s{12}THEN\\s+u\\.Name", formatted);
         Assert.Matches("\\n\\s{4}END\\s+LIKE\\n", formatted);
         Assert.Matches("(?i)\\n\\s{8}isnull\\s*\\(", formatted);
         Assert.Matches("\\n\\s{12}\\(", formatted);
@@ -330,6 +337,8 @@ public sealed class SqlFormattingServiceTests
         var formatted = Normalize(result.FormattedSql);
         Assert.Matches("\\nWHERE\\n", formatted);
         Assert.Matches("\\n\\s{4}CASE\\n", formatted);
+        Assert.Matches("\\n\\s{8}WHEN\\s+u\\.IsVip\\s*=\\s*1\\n", formatted);
+        Assert.Matches("\\n\\s{12}THEN\\s+u\\.Points", formatted);
         Assert.Matches("\\n\\s{4}END\\s+BETWEEN\\n", formatted);
         Assert.Matches("(?i)\\n\\s{8}coalesce\\s*\\(", formatted);
         Assert.Matches("\\n\\s{16}SELECT\\n", formatted);
@@ -360,6 +369,8 @@ public sealed class SqlFormattingServiceTests
         Assert.Matches("\\n\\s{8}\\(", formatted);
         Assert.Matches("\\n\\s{12}SELECT\\s+TOP\\s+1\\n", formatted);
         Assert.Matches("\\n\\s{8}CASE\\n", formatted);
+        Assert.Matches("\\n\\s{12}WHEN\\s+u\\.IsDeleted\\s*=\\s*1\\n", formatted);
+        Assert.Matches("\\n\\s{16}THEN\\s+NULL", formatted);
         Assert.Matches("\\n\\s{8}END\\n", formatted);
         Assert.Matches("\\n\\s{4}\\)\\s+IS\\s+NULL", formatted);
     }

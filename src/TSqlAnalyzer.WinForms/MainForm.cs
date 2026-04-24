@@ -4,6 +4,7 @@ using TSqlAnalyzer.Application.Export;
 using TSqlAnalyzer.Application.Formatting;
 using TSqlAnalyzer.Application.Presentation;
 using TSqlAnalyzer.Application.Services;
+using TSqlAnalyzer.Application.Workspace;
 using TSqlAnalyzer.Domain.Analysis;
 
 namespace TSqlAnalyzer.WinForms;
@@ -54,7 +55,9 @@ public partial class MainForm : Form
         ColumnTextExportBuilder columnTextExportBuilder,
         SqlFormattingService sqlFormattingService,
         ParseIssueTextSpanResolver parseIssueTextSpanResolver,
-        SqlInputAssistService sqlInputAssistService)
+        SqlInputAssistService sqlInputAssistService,
+        WorkspaceStateManager workspaceStateManager,
+        JsonWorkspaceStateStore workspaceStateStore)
     {
         _analysisService = analysisService;
         _treeBuilder = treeBuilder;
@@ -62,8 +65,11 @@ public partial class MainForm : Form
         _sqlFormattingService = sqlFormattingService;
         _parseIssueTextSpanResolver = parseIssueTextSpanResolver;
         _sqlInputAssistService = sqlInputAssistService;
+        _workspaceStateManager = workspaceStateManager;
+        _workspaceStateStore = workspaceStateStore;
 
         InitializeComponent();
+        InitializeWorkspaceUi();
         _parseIssuePanel = CreateParseIssuePanel();
         _parseIssueLabel = CreateParseIssueLabel();
         _parseIssueListBox = CreateParseIssueListBox();
@@ -77,6 +83,7 @@ public partial class MainForm : Form
 
         ConfigureResultTreeViewVisuals();
         ConfigureEditorAssistControls();
+        InitializeWorkspaceState();
     }
 
     /// <summary>
@@ -648,6 +655,12 @@ public partial class MainForm : Form
     /// </summary>
     private void SqlTextBox_TextChanged(object? sender, EventArgs e)
     {
+        if (!_suppressWorkspaceTextSync)
+        {
+            _workspaceState = _workspaceStateManager.UpdateSelectedQuerySql(_workspaceState, sqlTextBox.Text);
+            ScheduleWorkspaceSave();
+        }
+
         ClearParseIssues();
         UpdateEditorOverlayLayout();
 

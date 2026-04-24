@@ -23,10 +23,15 @@ src/TSqlAnalyzer.Application/Presentation/DisplayTreeSearch.cs
 src/TSqlAnalyzer.Application/Presentation/QueryAnalysisTreeBuilder.cs
 src/TSqlAnalyzer.Application/Services/IQueryAnalysisService.cs
 src/TSqlAnalyzer.Application/Services/QueryAnalysisService.cs
+src/TSqlAnalyzer.Application/Workspace/JsonWorkspaceStateStore.cs
+src/TSqlAnalyzer.Application/Workspace/WorkspaceStateManager.cs
+src/TSqlAnalyzer.Application/Workspace/WorkspaceStateModels.cs
 src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj
 src/TSqlAnalyzer.WinForms/Program.cs
 src/TSqlAnalyzer.WinForms/MainForm.cs
+src/TSqlAnalyzer.WinForms/MainForm.Workspace.cs
 src/TSqlAnalyzer.WinForms/MainForm.Designer.cs
 src/TSqlAnalyzer.WinForms/UI/AnalysisTreeViewBinder.cs
+src/TSqlAnalyzer.WinForms/UI/TextPromptDialog.cs
 src/TSqlAnalyzer.WinForms/UI/TreeNodeVisualCatalog.cs
 src/TSqlAnalyzer.WinForms/UI/TreeViewImageListFactory.cs

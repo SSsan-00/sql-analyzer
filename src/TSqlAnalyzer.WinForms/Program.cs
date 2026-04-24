@@ -4,6 +4,7 @@ using TSqlAnalyzer.Application.Export;
 using TSqlAnalyzer.Application.Formatting;
 using TSqlAnalyzer.Application.Presentation;
 using TSqlAnalyzer.Application.Services;
+using TSqlAnalyzer.Application.Workspace;
 
 namespace TSqlAnalyzer.WinForms;
 
@@ -27,6 +28,12 @@ internal static class Program
         var sqlFormattingService = new SqlFormattingService();
         var parseIssueTextSpanResolver = new ParseIssueTextSpanResolver();
         var sqlInputAssistService = new SqlInputAssistService();
+        var workspaceStateManager = new WorkspaceStateManager();
+        var workspaceStateFilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "TSqlAnalyzer",
+            "workspace-state.json");
+        var workspaceStateStore = new JsonWorkspaceStateStore(workspaceStateFilePath, workspaceStateManager);
 
         System.Windows.Forms.Application.Run(new MainForm(
             analysisService,
@@ -34,6 +41,8 @@ internal static class Program
             columnTextExportBuilder,
             sqlFormattingService,
             parseIssueTextSpanResolver,
-            sqlInputAssistService));
+            sqlInputAssistService,
+            workspaceStateManager,
+            workspaceStateStore));
     }
 }

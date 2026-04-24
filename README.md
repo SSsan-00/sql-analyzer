@@ -66,8 +66,11 @@
 - SQL 入力欄で `Ctrl+Space` による入力補助を使える
 - 入力補助では SQL キーワード、CTE 名、FROM / JOIN の別名、SELECT 別名、既出の `alias.column` 参照列を候補に出せる
 - `整形` ボタンまたは `Ctrl+Shift+F` で SQL を読みやすいレイアウトへ整形できる
+- `CASE` 式の `WHEN / THEN / ELSE` を多段表示し、分岐構造を強めに見せられる
 - 構文エラーがある SQL は `行 / 列 / メッセージ` 一覧を表示できる
 - 構文エラー一覧を選ぶと、SQL 入力欄の該当箇所を赤背景で強調して確認できる
+- ワークスペース機能で複数クエリを一覧管理できる
+- アプリ再起動後も、最後に開いていたワークスペースとクエリ本文を復元できる
 - 解析結果の選択対象に対応する SQL 断片を選択と黄色背景で相互ハイライトできる
 - TreeView から別コントロールや別アプリへフォーカスを移すと、SQL 側の一時的な黄色背景を解除できる
 - TreeView で選択したノードの全文を下部ペインで確認できる
@@ -142,6 +145,19 @@ WHERE
             ),
             u.Name
         );
+```
+
+`CASE` は次のように `WHEN` と `THEN` を分け、`ELSE` も別ブロックとして表示する。
+
+```sql
+CASE
+    WHEN u.Status = 'A'
+        THEN u.Name
+    WHEN u.Status = 'B'
+        THEN u.Code
+    ELSE
+        'Unknown'
+END
 ```
 
 ## 列情報エクスポートの出力仕様
@@ -225,6 +241,15 @@ Windows 環境で次を実行する。
 ```bash
 dotnet run --project src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj
 ```
+
+### ワークスペース保存先
+
+- ローカル保存先: `%LocalAppData%\\TSqlAnalyzer\\workspace-state.json`
+- 保存対象:
+  - ワークスペース一覧
+  - 各クエリ名
+  - 各 SQL 本文
+  - 最後に選択していたワークスペースとクエリ
 
 ## 単一ファイル bootstrap 配布
 
