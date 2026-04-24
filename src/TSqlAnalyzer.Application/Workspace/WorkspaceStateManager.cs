@@ -91,6 +91,38 @@ public sealed class WorkspaceStateManager
     }
 
     /// <summary>
+    /// ワークスペースの並び順を変更する。
+    /// 選択状態は維持しつつ、指定位置へ対象ワークスペースを移動する。
+    /// </summary>
+    public WorkspaceSessionState MoveWorkspace(WorkspaceSessionState state, string workspaceId, int targetIndex)
+    {
+        var ensuredState = EnsureValidState(state);
+        var workspaces = ensuredState.Workspaces
+            .Select(CloneWorkspace)
+            .ToList();
+        var sourceIndex = workspaces.FindIndex(workspace => workspace.Id == workspaceId);
+        if (sourceIndex < 0)
+        {
+            return ensuredState;
+        }
+
+        var clampedTargetIndex = Math.Clamp(targetIndex, 0, workspaces.Count - 1);
+        if (sourceIndex == clampedTargetIndex)
+        {
+            return ensuredState;
+        }
+
+        var workspace = workspaces[sourceIndex];
+        workspaces.RemoveAt(sourceIndex);
+        workspaces.Insert(Math.Clamp(clampedTargetIndex, 0, workspaces.Count), workspace);
+
+        return new WorkspaceSessionState(
+            workspaces,
+            ensuredState.SelectedWorkspaceId,
+            ensuredState.SelectedQueryId);
+    }
+
+    /// <summary>
     /// ワークスペースを削除する。
     /// 最後の 1 件は残し、削除後も必ず選択先が存在するようにする。
     /// </summary>

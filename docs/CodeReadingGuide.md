@@ -24,7 +24,7 @@
 9. `src/TSqlAnalyzer.Application/Workspace/WorkspaceStateManager.cs`
    - ワークスペースとクエリ一覧の不変条件を読む
 10. `src/TSqlAnalyzer.WinForms/MainForm.Workspace.cs`
-    - ワークスペース UI と保存復元の結線を読む
+    - ワークスペース UI、保存復元、並べ替えの結線を読む
 
 ## レイヤーごとの役割
 

@@ -13,9 +13,11 @@ public partial class MainForm
     private readonly JsonWorkspaceStateStore _workspaceStateStore;
 
     private TableLayoutPanel _workspacePanel = null!;
-    private ComboBox _workspaceComboBox = null!;
+    private ListBox _workspaceListBox = null!;
     private ListBox _queryListBox = null!;
     private System.Windows.Forms.Timer _workspaceSaveTimer = null!;
+    private Point _workspaceDragStartPoint;
+    private int _workspaceDragSourceIndex = -1;
 
     private WorkspaceSessionState _workspaceState = null!;
     private bool _suppressWorkspaceUiEvents;
@@ -27,7 +29,7 @@ public partial class MainForm
     /// </summary>
     private void InitializeWorkspaceUi()
     {
-        _workspaceComboBox = CreateWorkspaceComboBox();
+        _workspaceListBox = CreateWorkspaceListBox();
         _queryListBox = CreateQueryListBox();
         _workspacePanel = CreateWorkspacePanel();
         _workspaceSaveTimer = new System.Windows.Forms.Timer(components!)
@@ -68,23 +70,25 @@ public partial class MainForm
             Margin = new Padding(0),
             Name = "workspacePanel",
             Padding = new Padding(0, 0, 0, 8),
-            RowCount = 3
+            RowCount = 4
         };
 
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.Controls.Add(CreateWorkspaceSelectorPanel(), 0, 0);
-        panel.Controls.Add(CreateQueryHeaderPanel(), 0, 1);
-        panel.Controls.Add(_queryListBox, 0, 2);
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.Controls.Add(CreateWorkspaceHeaderPanel(), 0, 0);
+        panel.Controls.Add(_workspaceListBox, 0, 1);
+        panel.Controls.Add(CreateQueryHeaderPanel(), 0, 2);
+        panel.Controls.Add(_queryListBox, 0, 3);
         return panel;
     }
 
     /// <summary>
-    /// ワークスペース選択行を作る。
+    /// ワークスペース一覧ヘッダーを作る。
     /// </summary>
-    private FlowLayoutPanel CreateWorkspaceSelectorPanel()
+    private FlowLayoutPanel CreateWorkspaceHeaderPanel()
     {
         var panel = new FlowLayoutPanel
         {
@@ -98,12 +102,13 @@ public partial class MainForm
         {
             AutoSize = true,
             Margin = new Padding(0, 7, 8, 0),
-            Text = "ワークスペース"
+            Text = "ワークスペース一覧"
         });
-        panel.Controls.Add(_workspaceComboBox);
         panel.Controls.Add(CreateWorkspaceActionButton("追加", WorkspaceAddButton_Click));
         panel.Controls.Add(CreateWorkspaceActionButton("名前変更", WorkspaceRenameButton_Click));
         panel.Controls.Add(CreateWorkspaceActionButton("削除", WorkspaceDeleteButton_Click));
+        panel.Controls.Add(CreateWorkspaceActionButton("↑", WorkspaceMoveUpButton_Click));
+        panel.Controls.Add(CreateWorkspaceActionButton("↓", WorkspaceMoveDownButton_Click));
         return panel;
     }
 
@@ -133,18 +138,27 @@ public partial class MainForm
     }
 
     /// <summary>
-    /// ワークスペース選択コンボボックスを作る。
+    /// ワークスペース一覧を作る。
+    /// 選択と並べ替えを同じ一覧で扱い、ドラッグ移動も有効にする。
     /// </summary>
-    private ComboBox CreateWorkspaceComboBox()
+    private ListBox CreateWorkspaceListBox()
     {
-        var comboBox = new ComboBox
+        var listBox = new ListBox
         {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 220
+            AllowDrop = true,
+            Dock = DockStyle.Top,
+            Font = new Font("Yu Gothic UI", 9F),
+            Height = 96,
+            IntegralHeight = false
         };
 
-        comboBox.SelectedIndexChanged += WorkspaceComboBox_SelectedIndexChanged;
-        return comboBox;
+        listBox.SelectedIndexChanged += WorkspaceListBox_SelectedIndexChanged;
+        listBox.MouseDown += WorkspaceListBox_MouseDown;
+        listBox.MouseMove += WorkspaceListBox_MouseMove;
+        listBox.DragEnter += WorkspaceListBox_DragEnter;
+        listBox.DragOver += WorkspaceListBox_DragOver;
+        listBox.DragDrop += WorkspaceListBox_DragDrop;
+        return listBox;
     }
 
     /// <summary>
@@ -190,23 +204,23 @@ public partial class MainForm
         _suppressWorkspaceUiEvents = true;
         try
         {
-            _workspaceComboBox.BeginUpdate();
+            _workspaceListBox.BeginUpdate();
             try
             {
-                _workspaceComboBox.Items.Clear();
+                _workspaceListBox.Items.Clear();
                 foreach (var workspace in _workspaceState.Workspaces)
                 {
-                    _workspaceComboBox.Items.Add(new WorkspaceListItem(workspace));
+                    _workspaceListBox.Items.Add(new WorkspaceListItem(workspace));
                 }
             }
             finally
             {
-                _workspaceComboBox.EndUpdate();
+                _workspaceListBox.EndUpdate();
             }
 
             var selectedWorkspaceIndex = _workspaceState.Workspaces.FindIndex(
                 workspace => workspace.Id == _workspaceState.SelectedWorkspaceId);
-            _workspaceComboBox.SelectedIndex = selectedWorkspaceIndex >= 0 ? selectedWorkspaceIndex : 0;
+            _workspaceListBox.SelectedIndex = selectedWorkspaceIndex >= 0 ? selectedWorkspaceIndex : 0;
 
             BindQueryListBox();
         }
@@ -344,9 +358,9 @@ public partial class MainForm
     /// <summary>
     /// ワークスペース選択変更を状態へ反映する。
     /// </summary>
-    private void WorkspaceComboBox_SelectedIndexChanged(object? sender, EventArgs e)
+    private void WorkspaceListBox_SelectedIndexChanged(object? sender, EventArgs e)
     {
-        if (_suppressWorkspaceUiEvents || _workspaceComboBox.SelectedItem is not WorkspaceListItem item)
+        if (_suppressWorkspaceUiEvents || _workspaceListBox.SelectedItem is not WorkspaceListItem item)
         {
             return;
         }
@@ -400,7 +414,7 @@ public partial class MainForm
     /// </summary>
     private void WorkspaceRenameButton_Click(object? sender, EventArgs e)
     {
-        if (_workspaceComboBox.SelectedItem is not WorkspaceListItem item)
+        if (_workspaceListBox.SelectedItem is not WorkspaceListItem item)
         {
             return;
         }
@@ -425,7 +439,7 @@ public partial class MainForm
     /// </summary>
     private void WorkspaceDeleteButton_Click(object? sender, EventArgs e)
     {
-        if (_workspaceComboBox.SelectedItem is not WorkspaceListItem item)
+        if (_workspaceListBox.SelectedItem is not WorkspaceListItem item)
         {
             return;
         }
@@ -443,6 +457,48 @@ public partial class MainForm
         _workspaceState = _workspaceStateManager.DeleteWorkspace(_workspaceState, item.Workspace.Id);
         BindWorkspaceControls();
         ApplySelectedQueryToEditor();
+        ScheduleWorkspaceSave();
+    }
+
+    /// <summary>
+    /// 選択中ワークスペースを 1 つ上へ移動する。
+    /// </summary>
+    private void WorkspaceMoveUpButton_Click(object? sender, EventArgs e)
+    {
+        if (_workspaceListBox.SelectedItem is not WorkspaceListItem item)
+        {
+            return;
+        }
+
+        var currentIndex = _workspaceState.Workspaces.FindIndex(workspace => workspace.Id == item.Workspace.Id);
+        if (currentIndex <= 0)
+        {
+            return;
+        }
+
+        _workspaceState = _workspaceStateManager.MoveWorkspace(_workspaceState, item.Workspace.Id, currentIndex - 1);
+        BindWorkspaceControls();
+        ScheduleWorkspaceSave();
+    }
+
+    /// <summary>
+    /// 選択中ワークスペースを 1 つ下へ移動する。
+    /// </summary>
+    private void WorkspaceMoveDownButton_Click(object? sender, EventArgs e)
+    {
+        if (_workspaceListBox.SelectedItem is not WorkspaceListItem item)
+        {
+            return;
+        }
+
+        var currentIndex = _workspaceState.Workspaces.FindIndex(workspace => workspace.Id == item.Workspace.Id);
+        if (currentIndex < 0 || currentIndex >= _workspaceState.Workspaces.Count - 1)
+        {
+            return;
+        }
+
+        _workspaceState = _workspaceStateManager.MoveWorkspace(_workspaceState, item.Workspace.Id, currentIndex + 1);
+        BindWorkspaceControls();
         ScheduleWorkspaceSave();
     }
 
@@ -519,6 +575,119 @@ public partial class MainForm
         BindWorkspaceControls();
         ApplySelectedQueryToEditor();
         ScheduleWorkspaceSave();
+    }
+
+    /// <summary>
+    /// ドラッグ開始候補のワークスペース位置を記録する。
+    /// </summary>
+    private void WorkspaceListBox_MouseDown(object? sender, MouseEventArgs e)
+    {
+        _workspaceDragSourceIndex = _workspaceListBox.IndexFromPoint(e.Location);
+        _workspaceDragStartPoint = e.Location;
+    }
+
+    /// <summary>
+    /// 一定距離動いたらドラッグ移動を開始する。
+    /// </summary>
+    private void WorkspaceListBox_MouseMove(object? sender, MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left
+            || _workspaceDragSourceIndex < 0
+            || _workspaceDragSourceIndex >= _workspaceListBox.Items.Count
+            || _workspaceListBox.Items[_workspaceDragSourceIndex] is not WorkspaceListItem item)
+        {
+            return;
+        }
+
+        var dragBounds = new Rectangle(
+            _workspaceDragStartPoint.X - SystemInformation.DragSize.Width / 2,
+            _workspaceDragStartPoint.Y - SystemInformation.DragSize.Height / 2,
+            SystemInformation.DragSize.Width,
+            SystemInformation.DragSize.Height);
+        if (dragBounds.Contains(e.Location))
+        {
+            return;
+        }
+
+        _workspaceListBox.DoDragDrop(item.Workspace.Id, DragDropEffects.Move);
+        _workspaceDragSourceIndex = -1;
+    }
+
+    /// <summary>
+    /// ワークスペース ID ドラッグだけを受け付ける。
+    /// </summary>
+    private void WorkspaceListBox_DragEnter(object? sender, DragEventArgs e)
+    {
+        e.Effect = e.Data?.GetDataPresent(typeof(string)) == true
+            ? DragDropEffects.Move
+            : DragDropEffects.None;
+    }
+
+    /// <summary>
+    /// ドラッグ中のカーソルに移動可能を示す。
+    /// </summary>
+    private void WorkspaceListBox_DragOver(object? sender, DragEventArgs e)
+    {
+        e.Effect = e.Data?.GetDataPresent(typeof(string)) == true
+            ? DragDropEffects.Move
+            : DragDropEffects.None;
+    }
+
+    /// <summary>
+    /// ドロップ位置に合わせてワークスペース順を入れ替える。
+    /// </summary>
+    private void WorkspaceListBox_DragDrop(object? sender, DragEventArgs e)
+    {
+        if (e.Data?.GetData(typeof(string)) is not string workspaceId)
+        {
+            return;
+        }
+
+        var sourceIndex = _workspaceState.Workspaces.FindIndex(workspace => workspace.Id == workspaceId);
+        if (sourceIndex < 0)
+        {
+            return;
+        }
+
+        var clientPoint = _workspaceListBox.PointToClient(new Point(e.X, e.Y));
+        var insertionIndex = GetWorkspaceInsertionIndex(clientPoint);
+        var targetIndex = sourceIndex < insertionIndex
+            ? insertionIndex - 1
+            : insertionIndex;
+        targetIndex = Math.Clamp(targetIndex, 0, _workspaceState.Workspaces.Count - 1);
+
+        _workspaceState = _workspaceStateManager.MoveWorkspace(_workspaceState, workspaceId, targetIndex);
+        BindWorkspaceControls();
+        ScheduleWorkspaceSave();
+    }
+
+    /// <summary>
+    /// ドロップ位置の挿入インデックスを求める。
+    /// アイテムの上半分なら手前、下半分なら次位置へ入れる。
+    /// </summary>
+    private int GetWorkspaceInsertionIndex(Point clientPoint)
+    {
+        if (_workspaceListBox.Items.Count == 0)
+        {
+            return 0;
+        }
+
+        for (var index = 0; index < _workspaceListBox.Items.Count; index++)
+        {
+            var bounds = _workspaceListBox.GetItemRectangle(index);
+            var middleY = bounds.Top + bounds.Height / 2;
+            if (clientPoint.Y < middleY)
+            {
+                return index;
+            }
+
+            if (clientPoint.Y <= bounds.Bottom)
+            {
+                return index + 1;
+            }
+        }
+
+        return _workspaceListBox.Items.Count;
     }
 
     /// <summary>

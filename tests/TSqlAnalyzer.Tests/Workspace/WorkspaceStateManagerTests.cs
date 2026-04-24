@@ -44,6 +44,42 @@ public sealed class WorkspaceStateManagerTests
     }
 
     /// <summary>
+    /// ワークスペース移動では順序だけが変わり、選択中ワークスペース自体は維持されることを確認する。
+    /// </summary>
+    [Fact]
+    public void MoveWorkspace_ReordersListAndKeepsSelection()
+    {
+        var manager = new WorkspaceStateManager();
+        var state = manager.AddWorkspace(manager.EnsureValidState(null), "検証用 2");
+        state = manager.AddWorkspace(state, "検証用 3");
+        var selectedWorkspaceId = state.SelectedWorkspaceId;
+        var selectedQueryId = state.SelectedQueryId;
+
+        var updatedState = manager.MoveWorkspace(state, selectedWorkspaceId, 0);
+
+        Assert.Equal(selectedWorkspaceId, updatedState.SelectedWorkspaceId);
+        Assert.Equal(selectedQueryId, updatedState.SelectedQueryId);
+        Assert.Equal(selectedWorkspaceId, updatedState.Workspaces[0].Id);
+        Assert.Equal("ワークスペース 1", updatedState.Workspaces[1].Name);
+        Assert.Equal("検証用 2", updatedState.Workspaces[2].Name);
+    }
+
+    /// <summary>
+    /// 移動先が範囲外でも先頭または末尾へ丸められることを確認する。
+    /// </summary>
+    [Fact]
+    public void MoveWorkspace_ClampsOutOfRangeTargetIndex()
+    {
+        var manager = new WorkspaceStateManager();
+        var state = manager.AddWorkspace(manager.EnsureValidState(null), "検証用 2");
+        var firstWorkspaceId = state.Workspaces[0].Id;
+
+        var updatedState = manager.MoveWorkspace(state, firstWorkspaceId, 99);
+
+        Assert.Equal(firstWorkspaceId, updatedState.Workspaces[^1].Id);
+    }
+
+    /// <summary>
     /// 最後のクエリを削除しようとしても、空ワークスペースにならず代替クエリが維持されることを確認する。
     /// </summary>
     [Fact]
