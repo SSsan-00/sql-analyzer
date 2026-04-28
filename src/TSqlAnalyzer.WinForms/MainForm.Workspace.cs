@@ -15,6 +15,8 @@ public partial class MainForm
     private TableLayoutPanel _workspacePanel = null!;
     private ListBox _workspaceListBox = null!;
     private ListBox _queryListBox = null!;
+    private Button _workspaceCollapseButton = null!;
+    private Button _queryCollapseButton = null!;
     private System.Windows.Forms.Timer _workspaceSaveTimer = null!;
     private Point _workspaceDragStartPoint;
     private int _workspaceDragSourceIndex = -1;
@@ -22,6 +24,8 @@ public partial class MainForm
     private WorkspaceSessionState _workspaceState = null!;
     private bool _suppressWorkspaceUiEvents;
     private bool _suppressWorkspaceTextSync;
+    private bool _isWorkspaceListCollapsed;
+    private bool _isQueryListCollapsed;
 
     /// <summary>
     /// ワークスペース UI を初期化する。
@@ -31,6 +35,8 @@ public partial class MainForm
     {
         _workspaceListBox = CreateWorkspaceListBox();
         _queryListBox = CreateQueryListBox();
+        _workspaceCollapseButton = CreateCollapseButton(ToggleWorkspaceListCollapsed);
+        _queryCollapseButton = CreateCollapseButton(ToggleQueryListCollapsed);
         _workspacePanel = CreateWorkspacePanel();
         _workspaceSaveTimer = new System.Windows.Forms.Timer(components!)
         {
@@ -39,6 +45,8 @@ public partial class MainForm
 
         _workspaceSaveTimer.Tick += WorkspaceSaveTimer_Tick;
         FormClosing += MainForm_FormClosing;
+        ApplyWorkspaceListCollapsedState();
+        ApplyQueryListCollapsedState();
 
         mainSplitContainer.Panel1.Controls.Add(_workspacePanel);
         mainSplitContainer.Panel1.Controls.SetChildIndex(inputLabel, 0);
@@ -104,6 +112,7 @@ public partial class MainForm
             Margin = new Padding(0, 7, 8, 0),
             Text = "ワークスペース一覧"
         });
+        panel.Controls.Add(_workspaceCollapseButton);
         panel.Controls.Add(CreateWorkspaceActionButton("追加", WorkspaceAddButton_Click));
         panel.Controls.Add(CreateWorkspaceActionButton("名前変更", WorkspaceRenameButton_Click));
         panel.Controls.Add(CreateWorkspaceActionButton("削除", WorkspaceDeleteButton_Click));
@@ -131,6 +140,7 @@ public partial class MainForm
             Margin = new Padding(0, 7, 8, 0),
             Text = "クエリ一覧"
         });
+        panel.Controls.Add(_queryCollapseButton);
         panel.Controls.Add(CreateWorkspaceActionButton("追加", QueryAddButton_Click));
         panel.Controls.Add(CreateWorkspaceActionButton("名前変更", QueryRenameButton_Click));
         panel.Controls.Add(CreateWorkspaceActionButton("削除", QueryDeleteButton_Click));
@@ -193,6 +203,59 @@ public partial class MainForm
 
         button.Click += onClick;
         return button;
+    }
+
+    /// <summary>
+    /// 折りたたみ切り替えに使うボタンを作る。
+    /// </summary>
+    private static Button CreateCollapseButton(EventHandler onClick)
+    {
+        var button = new Button
+        {
+            Margin = new Padding(0, 0, 6, 0),
+            Size = new Size(30, 25),
+            Text = "▼",
+            UseVisualStyleBackColor = true
+        };
+
+        button.Click += onClick;
+        return button;
+    }
+
+    /// <summary>
+    /// ワークスペース一覧の折りたたみ状態を切り替える。
+    /// </summary>
+    private void ToggleWorkspaceListCollapsed(object? sender, EventArgs e)
+    {
+        _isWorkspaceListCollapsed = !_isWorkspaceListCollapsed;
+        ApplyWorkspaceListCollapsedState();
+    }
+
+    /// <summary>
+    /// クエリ一覧の折りたたみ状態を切り替える。
+    /// </summary>
+    private void ToggleQueryListCollapsed(object? sender, EventArgs e)
+    {
+        _isQueryListCollapsed = !_isQueryListCollapsed;
+        ApplyQueryListCollapsedState();
+    }
+
+    /// <summary>
+    /// ワークスペース一覧の表示状態を反映する。
+    /// </summary>
+    private void ApplyWorkspaceListCollapsedState()
+    {
+        _workspaceListBox.Visible = !_isWorkspaceListCollapsed;
+        _workspaceCollapseButton.Text = _isWorkspaceListCollapsed ? "▶" : "▼";
+    }
+
+    /// <summary>
+    /// クエリ一覧の表示状態を反映する。
+    /// </summary>
+    private void ApplyQueryListCollapsedState()
+    {
+        _queryListBox.Visible = !_isQueryListCollapsed;
+        _queryCollapseButton.Text = _isQueryListCollapsed ? "▶" : "▼";
     }
 
     /// <summary>
