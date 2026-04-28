@@ -490,6 +490,12 @@ dotnet publish src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj `
 dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.csproj
 ```
 
+最新実装に合わせて `bootstrap/bundle-manifest.txt` も同時に更新したい場合は、次を使う。
+
+```powershell
+dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.csproj -- --refresh-manifest
+```
+
 関連ファイル:
 
 - `bootstrap/bundle-manifest.txt`

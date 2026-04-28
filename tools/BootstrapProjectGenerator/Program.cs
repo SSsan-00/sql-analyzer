@@ -17,13 +17,19 @@ internal static class Program
     {
         try
         {
-            var repoRoot = ResolveRepositoryRoot(args);
-            var manifestPath = args.Length > 1
-                ? Path.GetFullPath(args[1])
+            var options = ParseOptions(args);
+            var repoRoot = ResolveRepositoryRoot(options.RepositoryRoot);
+            var manifestPath = options.ManifestPath is not null
+                ? Path.GetFullPath(options.ManifestPath)
                 : Path.Combine(repoRoot, "bootstrap", "bundle-manifest.txt");
-            var outputPath = args.Length > 2
-                ? Path.GetFullPath(args[2])
+            var outputPath = options.OutputPath is not null
+                ? Path.GetFullPath(options.OutputPath)
                 : Path.Combine(repoRoot, "bootstrap", "TSqlAnalyzer.Bootstrap.csproj");
+
+            if (options.RefreshManifest)
+            {
+                RefreshManifest(repoRoot, manifestPath);
+            }
 
             var bundledFiles = LoadBundledFiles(repoRoot, manifestPath);
             var archivePayload = BuildArchivePayload(bundledFiles);
@@ -49,14 +55,45 @@ internal static class Program
     }
 
     /// <summary>
-    /// リポジトリルートを決定する。
-    /// 第1引数があればそれを使い、なければ実行ファイル位置から推定する。
+    /// コマンドライン引数を解釈する。
     /// </summary>
-    private static string ResolveRepositoryRoot(IReadOnlyList<string> args)
+    private static GeneratorOptions ParseOptions(IReadOnlyList<string> args)
     {
-        if (args.Count > 0)
+        var nonOptionArgs = new List<string>();
+        var refreshManifest = false;
+
+        foreach (var arg in args)
         {
-            return Path.GetFullPath(args[0]);
+            if (string.Equals(arg, "--refresh-manifest", StringComparison.OrdinalIgnoreCase))
+            {
+                refreshManifest = true;
+                continue;
+            }
+
+            nonOptionArgs.Add(arg);
+        }
+
+        if (nonOptionArgs.Count > 3)
+        {
+            throw new InvalidOperationException("引数が多すぎる。指定可能なのは [repoRoot] [manifestPath] [outputPath] と --refresh-manifest のみ。");
+        }
+
+        return new GeneratorOptions(
+            RepositoryRoot: nonOptionArgs.ElementAtOrDefault(0),
+            ManifestPath: nonOptionArgs.ElementAtOrDefault(1),
+            OutputPath: nonOptionArgs.ElementAtOrDefault(2),
+            RefreshManifest: refreshManifest);
+    }
+
+    /// <summary>
+    /// リポジトリルートを決定する。
+    /// repoRoot が指定されていればそれを使い、なければ実行ファイル位置から推定する。
+    /// </summary>
+    private static string ResolveRepositoryRoot(string? repoRoot)
+    {
+        if (!string.IsNullOrWhiteSpace(repoRoot))
+        {
+            return Path.GetFullPath(repoRoot);
         }
 
         var candidate = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
@@ -72,6 +109,56 @@ internal static class Program
         }
 
         throw new InvalidOperationException("リポジトリルートを特定できない。第1引数にルートパスを渡すこと。");
+    }
+
+    /// <summary>
+    /// 現在の実装から manifest を再生成する。
+    /// bootstrap の配布対象は実行に必要なプロダクションコードのみ。
+    /// </summary>
+    private static void RefreshManifest(string repoRoot, string manifestPath)
+    {
+        var candidates = new[]
+        {
+            ".gitignore",
+            "README.md",
+            "TSqlAnalyzer.Runtime.slnx",
+            "docs/CodeReadingGuide.md",
+            "docs/WindowsBootstrapToExe.md"
+        }.ToList();
+
+        var srcRoot = Path.Combine(repoRoot, "src");
+        if (!Directory.Exists(srcRoot))
+        {
+            throw new DirectoryNotFoundException($"src ディレクトリが見つからない: {srcRoot}");
+        }
+
+        candidates.AddRange(
+            Directory.EnumerateFiles(srcRoot, "*", SearchOption.AllDirectories)
+                .Select(path => NormalizeRelativePath(repoRoot, path)));
+
+        var lines = new List<string>
+        {
+            "# 単一ファイル bootstrap に含める配布対象"
+        };
+        lines.AddRange(candidates
+            .Select(path => path.Replace('\\', '/'))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(path => path, StringComparer.Ordinal));
+
+        var manifestDirectory = Path.GetDirectoryName(manifestPath);
+        if (!string.IsNullOrEmpty(manifestDirectory))
+        {
+            Directory.CreateDirectory(manifestDirectory);
+        }
+
+        File.WriteAllLines(manifestPath, lines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        Console.WriteLine($"Refreshed manifest: {manifestPath}");
+        Console.WriteLine($"Manifest files: {lines.Count - 1}");
+    }
+
+    private static string NormalizeRelativePath(string repoRoot, string absolutePath)
+    {
+        return Path.GetRelativePath(repoRoot, absolutePath).Replace('\\', '/');
     }
 
     /// <summary>
@@ -228,4 +315,10 @@ internal static class Program
     /// relative path は zip entry 名としてそのまま使う。
     /// </summary>
     private sealed record BundledFile(string RelativePath, byte[] Content);
+
+    private sealed record GeneratorOptions(
+        string? RepositoryRoot,
+        string? ManifestPath,
+        string? OutputPath,
+        bool RefreshManifest);
 }
