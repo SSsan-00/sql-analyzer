@@ -9,6 +9,9 @@ namespace TSqlAnalyzer.WinForms;
 /// </summary>
 public partial class MainForm
 {
+    private const int ExpandedWorkspaceListHeight = 96;
+    private const int ExpandedQueryListHeight = 110;
+
     private readonly WorkspaceStateManager _workspaceStateManager;
     private readonly JsonWorkspaceStateStore _workspaceStateStore;
 
@@ -53,6 +56,7 @@ public partial class MainForm
         mainSplitContainer.Panel1.Controls.SetChildIndex(_workspacePanel, 1);
         mainSplitContainer.Panel1.Controls.SetChildIndex(findPanel, 2);
         mainSplitContainer.Panel1.Controls.SetChildIndex(sqlTextBox, 3);
+        mainSplitContainer.Panel1.PerformLayout();
     }
 
     /// <summary>
@@ -158,7 +162,7 @@ public partial class MainForm
             AllowDrop = true,
             Dock = DockStyle.Top,
             Font = new Font("Yu Gothic UI", 9F),
-            Height = 96,
+            Height = ExpandedWorkspaceListHeight,
             IntegralHeight = false
         };
 
@@ -180,7 +184,7 @@ public partial class MainForm
         {
             Dock = DockStyle.Top,
             Font = new Font("Yu Gothic UI", 9F),
-            Height = 110,
+            Height = ExpandedQueryListHeight,
             IntegralHeight = false
         };
 
@@ -246,7 +250,9 @@ public partial class MainForm
     private void ApplyWorkspaceListCollapsedState()
     {
         _workspaceListBox.Visible = !_isWorkspaceListCollapsed;
+        _workspaceListBox.Height = _isWorkspaceListCollapsed ? 0 : ExpandedWorkspaceListHeight;
         _workspaceCollapseButton.Text = _isWorkspaceListCollapsed ? "▶" : "▼";
+        _workspacePanel.PerformLayout();
     }
 
     /// <summary>
@@ -255,7 +261,9 @@ public partial class MainForm
     private void ApplyQueryListCollapsedState()
     {
         _queryListBox.Visible = !_isQueryListCollapsed;
+        _queryListBox.Height = _isQueryListCollapsed ? 0 : ExpandedQueryListHeight;
         _queryCollapseButton.Text = _isQueryListCollapsed ? "▶" : "▼";
+        _workspacePanel.PerformLayout();
     }
 
     /// <summary>

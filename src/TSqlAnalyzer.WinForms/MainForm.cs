@@ -192,8 +192,10 @@ public partial class MainForm : Form
         var formatResult = _sqlFormattingService.Format(sqlTextBox.Text);
         if (!formatResult.IsSuccess)
         {
+            ClearSqlLinkedHighlight();
             ShowParseIssues(formatResult.ParseIssues);
             HideCompletionPopup();
+            UpdateDetailTextForSelection();
             return;
         }
 

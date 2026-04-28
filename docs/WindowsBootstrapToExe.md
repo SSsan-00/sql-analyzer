@@ -14,6 +14,7 @@
 - そのため、展開先では xUnit を前提にしない
 - 展開後に build する対象は `TSqlAnalyzer.Runtime.slnx`
 - 開発端末で test を回すときだけ `TSqlAnalyzer.slnx` と `tests/` を使う
+- リポジトリ内の `bootstrap/TSqlAnalyzer.Bootstrap.csproj` を直接 build した場合は、同一リポジトリ直下の `src/` と `docs/` を優先して展開する（単体配布した csproj は埋め込み payload を使う）
 
 言い換えると、clone できない端末は実行確認専用、clone できる端末は開発専用という分担にしている。
 

@@ -16,6 +16,9 @@
     <VerificationConfiguration Condition="'$(VerificationConfiguration)' == ''">Debug</VerificationConfiguration>
     <VerificationSolutionPath Condition="'$(VerificationSolutionPath)' == ''">TSqlAnalyzer.Runtime.slnx</VerificationSolutionPath>
     <DotNetCommand Condition="'$(DotNetCommand)' == ''">dotnet</DotNetCommand>
+    <LiveRepositoryRoot Condition="'$(LiveRepositoryRoot)' == ''">$(MSBuildProjectDirectory)/..</LiveRepositoryRoot>
+    <UseLiveRepository Condition="'$(UseLiveRepository)' == '' and Exists('$(LiveRepositoryRoot)/TSqlAnalyzer.Runtime.slnx') and Exists('$(LiveRepositoryRoot)/src/TSqlAnalyzer.WinForms/Program.cs')">true</UseLiveRepository>
+    <UseLiveRepository Condition="'$(UseLiveRepository)' == ''">false</UseLiveRepository>
     <RunSingleFileVerification Condition="'$(RunSingleFileVerification)' == ''">false</RunSingleFileVerification>
     <SingleFilePublishProjectPath Condition="'$(SingleFilePublishProjectPath)' == ''">src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj</SingleFilePublishProjectPath>
     <SingleFilePublishConfiguration Condition="'$(SingleFilePublishConfiguration)' == ''">Release</SingleFilePublishConfiguration>
@@ -70,8 +73,27 @@
     </Task>
   </UsingTask>
 
-  <Target Name="ExtractBundledRepository" BeforeTargets="Build">
+  <ItemGroup Condition="'$(UseLiveRepository)' == 'true'">
+    <LiveRepositoryFiles Include="$(LiveRepositoryRoot)/.gitignore" />
+    <LiveRepositoryFiles Include="$(LiveRepositoryRoot)/README.md" />
+    <LiveRepositoryFiles Include="$(LiveRepositoryRoot)/TSqlAnalyzer.Runtime.slnx" />
+    <LiveRepositoryFiles Include="$(LiveRepositoryRoot)/docs/CodeReadingGuide.md" />
+    <LiveRepositoryFiles Include="$(LiveRepositoryRoot)/docs/WindowsBootstrapToExe.md" />
+    <LiveRepositoryFiles Include="$(LiveRepositoryRoot)/src/**/*" />
+  </ItemGroup>
+
+  <Target Name="ExtractLiveRepository" BeforeTargets="Build" Condition="'$(UseLiveRepository)' == 'true'">
+    <Message Importance="High" Text="Extracting live repository files from $(LiveRepositoryRoot) to $(ExtractRoot)" />
+    <RemoveDir Directories="$(ExtractRoot)" Condition="Exists('$(ExtractRoot)')" />
+    <MakeDir Directories="$(ExtractRoot)" />
+    <Copy SourceFiles="@(LiveRepositoryFiles)"
+          DestinationFiles="@(LiveRepositoryFiles->'$(ExtractRoot)/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="false" />
+  </Target>
+
+  <Target Name="ExtractBundledRepository" BeforeTargets="Build" Condition="'$(UseLiveRepository)' != 'true'">
     <Message Importance="High" Text="Extracting $(BundledFileCount) bundled files to $(ExtractRoot)" />
+    <RemoveDir Directories="$(ExtractRoot)" Condition="Exists('$(ExtractRoot)')" />
     <ExtractBundledRepositoryTask RootDirectory="$(ExtractRoot)" ArchivePayload="$(ArchivePayload)" />
   </Target>
 
