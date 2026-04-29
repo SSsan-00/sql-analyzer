@@ -103,6 +103,11 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 category = QueryStatementCategory.Create;
                 break;
 
+            case CreateTriggerStatement createTriggerStatement when createTriggerStatement.TriggerType == TriggerType.InsteadOf:
+                createStatement = core.AnalyzeCreateTrigger(createTriggerStatement);
+                category = QueryStatementCategory.Create;
+                break;
+
             case UpdateStatement updateStatement when updateStatement.UpdateSpecification is not null:
                 dataModification = core.AnalyzeUpdate(updateStatement.UpdateSpecification);
                 category = QueryStatementCategory.Update;
@@ -119,7 +124,15 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 break;
 
             default:
-                notices.Add(new AnalysisNotice(AnalysisNoticeLevel.Warning, "この文種別は未対応です。"));
+                if (statement is CreateTriggerStatement)
+                {
+                    notices.Add(new AnalysisNotice(AnalysisNoticeLevel.Warning, "INSTEAD OF 以外の TRIGGER は未対応です。"));
+                }
+                else
+                {
+                    notices.Add(new AnalysisNotice(AnalysisNoticeLevel.Warning, "この文種別は未対応です。"));
+                }
+
                 return new QueryAnalysisResult(
                     QueryStatementCategory.Unsupported,
                     commonTableExpressions,
@@ -414,6 +427,71 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         }
 
         /// <summary>
+        /// CREATE TRIGGER 文を解析する。
+        /// 現時点では INSTEAD OF を対象にし、本体文は既存の SELECT / DML 解析へ委譲する。
+        /// </summary>
+        public CreateTriggerAnalysis AnalyzeCreateTrigger(CreateTriggerStatement createTriggerStatement)
+        {
+            var target = createTriggerStatement.TriggerObject?.Name is not null
+                ? CreateSchemaObjectSource(createTriggerStatement.TriggerObject.Name)
+                : null;
+            var events = createTriggerStatement.TriggerActions?
+                .Select((triggerAction, index) => AnalyzeTriggerEvent(triggerAction, index + 1))
+                .ToArray() ?? [];
+            var bodyStatements = FlattenTriggerBodyStatements(createTriggerStatement.StatementList)
+                .Select((statement, index) => AnalyzeTriggerBodyStatement(statement, index + 1))
+                .ToArray();
+
+            return new CreateTriggerAnalysis(
+                NormalizeSchemaObjectName(createTriggerStatement.Name),
+                target,
+                MapTriggerTiming(createTriggerStatement.TriggerType),
+                FormatTriggerTiming(createTriggerStatement.TriggerType),
+                events,
+                bodyStatements,
+                CreateTextSpan(createTriggerStatement));
+        }
+
+        /// <summary>
+        /// TRIGGER 本体の文列を平坦化する。
+        /// BEGIN ... END があっても内側の文単位で扱えるようにする。
+        /// </summary>
+        private IReadOnlyList<TSqlStatement> FlattenTriggerBodyStatements(StatementList? statementList)
+        {
+            if (statementList?.Statements is not { Count: > 0 } statements)
+            {
+                return [];
+            }
+
+            var flattenedStatements = new List<TSqlStatement>();
+            foreach (var statement in statements)
+            {
+                FlattenTriggerBodyStatement(statement, flattenedStatements);
+            }
+
+            return flattenedStatements;
+        }
+
+        /// <summary>
+        /// TRIGGER 本体の文を再帰的に平坦化する。
+        /// BEGIN ... END のみ特別扱いし、それ以外はそのまま 1 文として残す。
+        /// </summary>
+        private static void FlattenTriggerBodyStatement(TSqlStatement statement, ICollection<TSqlStatement> destination)
+        {
+            if (statement is BeginEndBlockStatement beginEndBlockStatement)
+            {
+                foreach (var nestedStatement in beginEndBlockStatement.StatementList.Statements)
+                {
+                    FlattenTriggerBodyStatement(nestedStatement, destination);
+                }
+
+                return;
+            }
+
+            destination.Add(statement);
+        }
+
+        /// <summary>
         /// UPDATE 文を解析する。
         /// 既存の FROM / JOIN / WHERE 解析を再利用しつつ、SET と対象を加える。
         /// </summary>
@@ -511,6 +589,75 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 NormalizeOrNull(deleteSpecification.OutputIntoClause),
                 subqueries.ToArray(),
                 CreateTextSpan(deleteSpecification));
+        }
+
+        /// <summary>
+        /// TRIGGER イベント 1 件を解析する。
+        /// INSERT / UPDATE / DELETE を優先し、その他は種別だけ残す。
+        /// </summary>
+        private TriggerEventAnalysis AnalyzeTriggerEvent(TriggerAction triggerAction, int sequence)
+        {
+            return new TriggerEventAnalysis(
+                sequence,
+                MapTriggerEventKind(triggerAction.TriggerActionType),
+                FormatTriggerEvent(triggerAction.TriggerActionType),
+                CreateTextSpan(triggerAction));
+        }
+
+        /// <summary>
+        /// TRIGGER 本体の 1 文を解析する。
+        /// 本体中では既存の SELECT / DML / CREATE 解析を再利用し、未対応文は表示文字列だけ残す。
+        /// </summary>
+        private TriggerBodyStatementAnalysis AnalyzeTriggerBodyStatement(TSqlStatement statement, int sequence)
+        {
+            QueryExpressionAnalysis? query = null;
+            DataModificationAnalysis? dataModification = null;
+            CreateStatementAnalysis? createStatement = null;
+            var category = QueryStatementCategory.Unsupported;
+
+            switch (statement)
+            {
+                case SelectStatement selectStatement when selectStatement.QueryExpression is not null:
+                    query = AnalyzeSelectStatement(selectStatement);
+                    category = query.Kind == QueryExpressionKind.SetOperation
+                        ? QueryStatementCategory.SetOperation
+                        : QueryStatementCategory.Select;
+                    break;
+
+                case UpdateStatement updateStatement when updateStatement.UpdateSpecification is not null:
+                    dataModification = AnalyzeUpdate(updateStatement.UpdateSpecification);
+                    category = QueryStatementCategory.Update;
+                    break;
+
+                case InsertStatement insertStatement when insertStatement.InsertSpecification is not null:
+                    dataModification = AnalyzeInsert(insertStatement.InsertSpecification);
+                    category = QueryStatementCategory.Insert;
+                    break;
+
+                case DeleteStatement deleteStatement when deleteStatement.DeleteSpecification is not null:
+                    dataModification = AnalyzeDelete(deleteStatement.DeleteSpecification);
+                    category = QueryStatementCategory.Delete;
+                    break;
+
+                case CreateViewStatement createViewStatement when createViewStatement.SelectStatement?.QueryExpression is not null:
+                    createStatement = AnalyzeCreateView(createViewStatement);
+                    category = QueryStatementCategory.Create;
+                    break;
+
+                case CreateTableStatement createTableStatement:
+                    createStatement = AnalyzeCreateTable(createTableStatement);
+                    category = QueryStatementCategory.Create;
+                    break;
+            }
+
+            return new TriggerBodyStatementAnalysis(
+                sequence,
+                category,
+                _textExtractor.Normalize(statement),
+                query,
+                dataModification,
+                createStatement,
+                CreateTextSpan(statement));
         }
 
         /// <summary>
@@ -1408,9 +1555,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             if (tableReference is NamedTableReference namedTableReference)
             {
                 var sourceName = NormalizeSchemaObjectName(namedTableReference.SchemaObject);
-                var sourceKind = IsCommonTableExpressionReference(namedTableReference.SchemaObject)
-                    ? SourceKind.CommonTableExpressionReference
-                    : SourceKind.Object;
+                var sourceKind = GetNamedSourceKind(namedTableReference.SchemaObject);
                 var exposedColumnNames = sourceKind == SourceKind.CommonTableExpressionReference
                     ? ResolveCommonTableExpressionColumns(sourceName)
                     : [];
@@ -1447,9 +1592,7 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
         private SourceAnalysis CreateSchemaObjectSource(SchemaObjectName schemaObjectName)
         {
             var sourceName = NormalizeSchemaObjectName(schemaObjectName);
-            var sourceKind = IsCommonTableExpressionReference(schemaObjectName)
-                ? SourceKind.CommonTableExpressionReference
-                : SourceKind.Object;
+            var sourceKind = GetNamedSourceKind(schemaObjectName);
 
             return new SourceAnalysis(
                 sourceName,
@@ -1458,6 +1601,34 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 sourceName,
                 null,
                 CreateTextSpan(schemaObjectName));
+        }
+
+        /// <summary>
+        /// 名前付きソースの分類を返す。
+        /// CTE 参照に加え、トリガー疑似テーブル inserted / deleted もここで識別する。
+        /// </summary>
+        private SourceKind GetNamedSourceKind(SchemaObjectName schemaObjectName)
+        {
+            if (IsCommonTableExpressionReference(schemaObjectName))
+            {
+                return SourceKind.CommonTableExpressionReference;
+            }
+
+            if (schemaObjectName.Identifiers.Count == 1)
+            {
+                var baseIdentifier = schemaObjectName.BaseIdentifier.Value;
+                if (string.Equals(baseIdentifier, "inserted", StringComparison.OrdinalIgnoreCase))
+                {
+                    return SourceKind.InsertedPseudoTable;
+                }
+
+                if (string.Equals(baseIdentifier, "deleted", StringComparison.OrdinalIgnoreCase))
+                {
+                    return SourceKind.DeletedPseudoTable;
+                }
+            }
+
+            return SourceKind.Object;
         }
 
         /// <summary>
@@ -1657,6 +1828,66 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 BinaryQueryExpressionType.Except => SetOperationType.Except,
                 BinaryQueryExpressionType.Intersect => SetOperationType.Intersect,
                 _ => SetOperationType.Union
+            };
+        }
+
+        /// <summary>
+        /// TriggerType を内部 enum へ変換する。
+        /// </summary>
+        private static TriggerTimingKind MapTriggerTiming(TriggerType triggerType)
+        {
+            return triggerType switch
+            {
+                TriggerType.For => TriggerTimingKind.For,
+                TriggerType.After => TriggerTimingKind.After,
+                TriggerType.InsteadOf => TriggerTimingKind.InsteadOf,
+                _ => TriggerTimingKind.Unknown
+            };
+        }
+
+        /// <summary>
+        /// TriggerType を表示文字列へ変換する。
+        /// </summary>
+        private static string FormatTriggerTiming(TriggerType triggerType)
+        {
+            return triggerType switch
+            {
+                TriggerType.For => "FOR",
+                TriggerType.After => "AFTER",
+                TriggerType.InsteadOf => "INSTEAD OF",
+                _ => triggerType.ToString().ToUpperInvariant()
+            };
+        }
+
+        /// <summary>
+        /// TriggerActionType を内部 enum へ変換する。
+        /// </summary>
+        private static TriggerEventKind MapTriggerEventKind(TriggerActionType triggerActionType)
+        {
+            return triggerActionType switch
+            {
+                TriggerActionType.Insert => TriggerEventKind.Insert,
+                TriggerActionType.Update => TriggerEventKind.Update,
+                TriggerActionType.Delete => TriggerEventKind.Delete,
+                TriggerActionType.Event => TriggerEventKind.Event,
+                TriggerActionType.LogOn => TriggerEventKind.LogOn,
+                _ => TriggerEventKind.Unknown
+            };
+        }
+
+        /// <summary>
+        /// TriggerActionType を表示文字列へ変換する。
+        /// </summary>
+        private static string FormatTriggerEvent(TriggerActionType triggerActionType)
+        {
+            return triggerActionType switch
+            {
+                TriggerActionType.Insert => "INSERT",
+                TriggerActionType.Update => "UPDATE",
+                TriggerActionType.Delete => "DELETE",
+                TriggerActionType.Event => "EVENT",
+                TriggerActionType.LogOn => "LOGON",
+                _ => triggerActionType.ToString().ToUpperInvariant()
             };
         }
 

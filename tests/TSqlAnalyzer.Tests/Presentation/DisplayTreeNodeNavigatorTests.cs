@@ -68,4 +68,30 @@ public sealed class DisplayTreeNodeNavigatorTests
 
         Assert.Null(match);
     }
+
+    /// <summary>
+    /// 親子で同じ span を持つ場合、`式:` のような詳細行より意味のある親ノードを優先することを確認する。
+    /// </summary>
+    [Fact]
+    public void FindBestMatch_WhenParentAndChildShareSpan_PrefersSemanticParentNode()
+    {
+        var itemSpan = new TextSpan(10, 8);
+        var root = new DisplayTreeNode(
+            "root",
+            [
+                new DisplayTreeNode(
+                    "項目 #1: u.Id",
+                    [
+                        new DisplayTreeNode("式: u.Id", [], itemSpan)
+                    ],
+                    itemSpan,
+                    DisplayTreeNodeKind.Select)
+            ],
+            Kind: DisplayTreeNodeKind.Root);
+
+        var match = DisplayTreeNodeNavigator.FindBestMatch(root, 12, 0);
+
+        Assert.NotNull(match);
+        Assert.Equal("項目 #1: u.Id", match!.Text);
+    }
 }

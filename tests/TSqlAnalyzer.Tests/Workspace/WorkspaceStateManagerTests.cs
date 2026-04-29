@@ -24,8 +24,8 @@ public sealed class WorkspaceStateManagerTests
         Assert.Equal("クエリ 1", state.Workspaces[0].Queries[0].Name);
         Assert.Equal(state.Workspaces[0].Id, state.SelectedWorkspaceId);
         Assert.Equal(state.Workspaces[0].Queries[0].Id, state.SelectedQueryId);
-        Assert.True(state.IsWorkspaceListExpanded);
-        Assert.True(state.IsQueryListExpanded);
+        Assert.False(state.IsWorkspaceListExpanded);
+        Assert.False(state.IsQueryListExpanded);
     }
 
     /// <summary>
@@ -95,8 +95,8 @@ public sealed class WorkspaceStateManagerTests
         state = manager.ToggleWorkspaceListExpanded(state);
         var updatedState = manager.ToggleQueryListExpanded(state);
 
-        Assert.False(updatedState.IsWorkspaceListExpanded);
-        Assert.False(updatedState.IsQueryListExpanded);
+        Assert.True(updatedState.IsWorkspaceListExpanded);
+        Assert.True(updatedState.IsQueryListExpanded);
         Assert.Equal(selectedWorkspaceId, updatedState.SelectedWorkspaceId);
         Assert.Equal(selectedQueryId, updatedState.SelectedQueryId);
     }

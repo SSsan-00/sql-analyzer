@@ -20,6 +20,7 @@ public static class DisplayTreeNodeNavigator
     private static DisplayTreeNode? FindBestMatchCore(DisplayTreeNode node, TextSpan selectionSpan)
     {
         DisplayTreeNode? bestChild = null;
+        var currentContainsSelection = Contains(node.SourceSpan, selectionSpan);
 
         foreach (var child in node.Children)
         {
@@ -36,12 +37,20 @@ public static class DisplayTreeNodeNavigator
             }
         }
 
+        if (currentContainsSelection
+            && bestChild is not null
+            && GetSpanLength(node.SourceSpan) == GetSpanLength(bestChild.SourceSpan)
+            && GetNavigationPriority(node.Kind) > GetNavigationPriority(bestChild.Kind))
+        {
+            return node;
+        }
+
         if (bestChild is not null)
         {
             return bestChild;
         }
 
-        return Contains(node.SourceSpan, selectionSpan)
+        return currentContainsSelection
             ? node
             : null;
     }
@@ -61,5 +70,21 @@ public static class DisplayTreeNodeNavigator
     private static int GetSpanLength(TextSpan? span)
     {
         return span?.Length ?? int.MaxValue;
+    }
+
+    private static int GetNavigationPriority(DisplayTreeNodeKind kind)
+    {
+        return kind switch
+        {
+            DisplayTreeNodeKind.Condition => 5,
+            DisplayTreeNodeKind.Select => 4,
+            DisplayTreeNodeKind.Source => 3,
+            DisplayTreeNodeKind.Join => 2,
+            DisplayTreeNodeKind.ColumnReference => 1,
+            DisplayTreeNodeKind.Detail => 0,
+            DisplayTreeNodeKind.Section => 0,
+            DisplayTreeNodeKind.Root => 0,
+            _ => 1
+        };
     }
 }

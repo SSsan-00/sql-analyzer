@@ -77,13 +77,15 @@ public enum JoinType
 
 /// <summary>
 /// FROM / JOIN ソースの分類。
-/// CTE 参照や派生テーブルを区別しておくと、参照関係や表示補足を付けやすい。
+/// CTE 参照や派生テーブルに加え、トリガー疑似テーブルも区別できるようにする。
 /// </summary>
 public enum SourceKind
 {
     Object,
     CommonTableExpressionReference,
     DerivedTable,
+    InsertedPseudoTable,
+    DeletedPseudoTable,
     Unknown
 }
 
@@ -146,12 +148,39 @@ public enum InsertSourceKind
 
 /// <summary>
 /// CREATE 文の種別。
-/// 現時点では VIEW と TABLE を対象にし、他の CREATE 種別は将来拡張へ回す。
+/// VIEW / TABLE / TRIGGER を区別し、作成対象ごとに主構造表示を切り替えやすくする。
 /// </summary>
 public enum CreateStatementKind
 {
     View,
-    Table
+    Table,
+    Trigger
+}
+
+/// <summary>
+/// TRIGGER のタイミング種別。
+/// INSTEAD OF を優先しつつ、将来の AFTER / FOR 追加にも備える。
+/// </summary>
+public enum TriggerTimingKind
+{
+    Unknown,
+    For,
+    After,
+    InsteadOf
+}
+
+/// <summary>
+/// TRIGGER のイベント種別。
+/// DML トリガーでは INSERT / UPDATE / DELETE を主に扱う。
+/// </summary>
+public enum TriggerEventKind
+{
+    Unknown,
+    Insert,
+    Update,
+    Delete,
+    Event,
+    LogOn
 }
 
 /// <summary>
@@ -376,6 +405,43 @@ public sealed record CreateTableAnalysis(
     QueryExpressionAnalysis? Query,
     TextSpan? SourceSpan = null)
     : CreateStatementAnalysis(CreateStatementKind.Table, Name, SourceSpan);
+
+/// <summary>
+/// CREATE TRIGGER 文の構造を表す。
+/// 対象、タイミング、イベント、本体文を分けて保持し、トリガー内部の処理を追えるようにする。
+/// </summary>
+public sealed record CreateTriggerAnalysis(
+    string Name,
+    SourceAnalysis? Target,
+    TriggerTimingKind TimingKind,
+    string TimingText,
+    IReadOnlyList<TriggerEventAnalysis> Events,
+    IReadOnlyList<TriggerBodyStatementAnalysis> BodyStatements,
+    TextSpan? SourceSpan = null)
+    : CreateStatementAnalysis(CreateStatementKind.Trigger, Name, SourceSpan);
+
+/// <summary>
+/// TRIGGER のイベント 1 件分。
+/// 複数イベント定義でも順番を保ったまま表示できるようにする。
+/// </summary>
+public sealed record TriggerEventAnalysis(
+    int Sequence,
+    TriggerEventKind Kind,
+    string DisplayText,
+    TextSpan? SourceSpan = null);
+
+/// <summary>
+/// TRIGGER 本体の 1 文分。
+/// 既存の SELECT / DML / CREATE 解析結果をぶら下げて、内部構造を再利用する。
+/// </summary>
+public sealed record TriggerBodyStatementAnalysis(
+    int Sequence,
+    QueryStatementCategory StatementCategory,
+    string DisplayText,
+    QueryExpressionAnalysis? Query,
+    DataModificationAnalysis? DataModification,
+    CreateStatementAnalysis? CreateStatement,
+    TextSpan? SourceSpan = null);
 
 /// <summary>
 /// CREATE TABLE の列定義 1 件分を表す。

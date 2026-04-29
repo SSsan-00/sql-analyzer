@@ -43,7 +43,15 @@ public sealed class QueryAnalysisTreeBuilder
     /// </summary>
     private static string BuildStatementCategoryText(QueryAnalysisResult result)
     {
-        return result.StatementCategory switch
+        return BuildStatementCategoryText(result.StatementCategory);
+    }
+
+    /// <summary>
+    /// 文種別の表示文字列を作る。
+    /// </summary>
+    private static string BuildStatementCategoryText(QueryStatementCategory statementCategory)
+    {
+        return statementCategory switch
         {
             QueryStatementCategory.Empty => "未入力",
             QueryStatementCategory.Select => "SELECT",
@@ -54,7 +62,7 @@ public sealed class QueryAnalysisTreeBuilder
             QueryStatementCategory.Delete => "DELETE",
             QueryStatementCategory.Unsupported => "未対応",
             QueryStatementCategory.ParseError => "構文エラー",
-            _ => result.StatementCategory.ToString()
+            _ => statementCategory.ToString()
         };
     }
 
@@ -115,6 +123,14 @@ public sealed class QueryAnalysisTreeBuilder
             children.Add(Node($"名前: {createTable.Name}"));
             children.Add(Node($"列数: {createTable.Columns.Count}"));
             children.Add(Node($"内部クエリ: {(createTable.Query is null ? "なし" : "あり")}"));
+        }
+        else if (result.CreateStatement is CreateTriggerAnalysis createTrigger)
+        {
+            children.Add(Node("作成形式: TRIGGER"));
+            children.Add(Node($"名前: {createTrigger.Name}"));
+            children.Add(Node($"タイミング: {createTrigger.TimingText}"));
+            children.Add(Node($"イベント: {string.Join(", ", createTrigger.Events.Select(triggerEvent => triggerEvent.DisplayText))}"));
+            children.Add(Node($"本体文数: {createTrigger.BodyStatements.Count}"));
         }
         else
         {
@@ -206,6 +222,7 @@ public sealed class QueryAnalysisTreeBuilder
         {
             CreateViewAnalysis createView => BuildCreateViewNode(createView),
             CreateTableAnalysis createTable => BuildCreateTableNode(createTable),
+            CreateTriggerAnalysis createTrigger => BuildCreateTriggerNode(createTrigger),
             _ => Node(DisplayTreeNodeKind.Create, "主構造", Node("未対応の CREATE 構造です。"))
         };
     }
@@ -272,6 +289,112 @@ public sealed class QueryAnalysisTreeBuilder
     }
 
     /// <summary>
+    /// CREATE TRIGGER 文の主構造ノードを作る。
+    /// トリガー情報と INSTEAD OF 本体を分け、内部文の構造を追いやすくする。
+    /// </summary>
+    private static DisplayTreeNode BuildCreateTriggerNode(CreateTriggerAnalysis createTrigger)
+    {
+        return NodeWithSpan(
+            DisplayTreeNodeKind.Create,
+            "主構造",
+            createTrigger.SourceSpan,
+            Node(
+                DisplayTreeNodeKind.Create,
+                "トリガー情報",
+                Node("作成形式: TRIGGER"),
+                Node($"名前: {createTrigger.Name}"),
+                BuildSourceSectionNode("対象", createTrigger.Target, "なし"),
+                Node($"タイミング: {createTrigger.TimingText}"),
+                BuildTriggerEventsNode(createTrigger.Events)),
+            BuildTriggerBodyNode(createTrigger));
+    }
+
+    /// <summary>
+    /// TRIGGER のイベント一覧ノードを作る。
+    /// </summary>
+    private static DisplayTreeNode BuildTriggerEventsNode(IReadOnlyList<TriggerEventAnalysis> events)
+    {
+        if (events.Count == 0)
+        {
+            return Node(DisplayTreeNodeKind.Create, "イベント", Node("なし"));
+        }
+
+        return Node(
+            DisplayTreeNodeKind.Create,
+            "イベント",
+            events
+                .Select(triggerEvent => Node(triggerEvent.DisplayText))
+                .ToArray());
+    }
+
+    /// <summary>
+    /// TRIGGER 本体ノードを作る。
+    /// 各文は既存の SELECT / DML / CREATE 表示へ流し込む。
+    /// </summary>
+    private static DisplayTreeNode BuildTriggerBodyNode(CreateTriggerAnalysis createTrigger)
+    {
+        var title = createTrigger.TimingKind == TriggerTimingKind.InsteadOf
+            ? "INSTEAD OF 本体"
+            : "本体";
+        if (createTrigger.BodyStatements.Count == 0)
+        {
+            return Node(DisplayTreeNodeKind.Create, title, Node("なし"));
+        }
+
+        return NodeWithSpan(
+            DisplayTreeNodeKind.Create,
+            title,
+            MergeSpans(createTrigger.BodyStatements.Select(bodyStatement => bodyStatement.SourceSpan)),
+            createTrigger.BodyStatements
+                .Select(BuildTriggerBodyStatementNode)
+                .ToArray());
+    }
+
+    /// <summary>
+    /// TRIGGER 本体の 1 文分を表示ノードへ変換する。
+    /// </summary>
+    private static DisplayTreeNode BuildTriggerBodyStatementNode(TriggerBodyStatementAnalysis bodyStatement)
+    {
+        var title = $"文 #{bodyStatement.Sequence}: {BuildStatementCategoryText(bodyStatement.StatementCategory)}";
+        var children = new List<DisplayTreeNode>();
+
+        if (bodyStatement.Query is not null)
+        {
+            children.Add(BuildQueryNode("主構造", bodyStatement.Query));
+        }
+        else if (bodyStatement.DataModification is UpdateStatementAnalysis updateStatement)
+        {
+            children.Add(BuildUpdateNode(updateStatement));
+        }
+        else if (bodyStatement.DataModification is InsertStatementAnalysis insertStatement)
+        {
+            children.Add(BuildInsertNode(insertStatement));
+        }
+        else if (bodyStatement.DataModification is DeleteStatementAnalysis deleteStatement)
+        {
+            children.Add(BuildDeleteNode(deleteStatement));
+        }
+        else if (bodyStatement.CreateStatement is CreateViewAnalysis createView)
+        {
+            children.Add(BuildCreateViewNode(createView));
+        }
+        else if (bodyStatement.CreateStatement is CreateTableAnalysis createTable)
+        {
+            children.Add(BuildCreateTableNode(createTable));
+        }
+        else if (bodyStatement.CreateStatement is CreateTriggerAnalysis createTrigger)
+        {
+            children.Add(BuildCreateTriggerNode(createTrigger));
+        }
+        else
+        {
+            children.Add(Node($"SQL: {bodyStatement.DisplayText}"));
+        }
+
+        return NodeWithSpan(DisplayTreeNodeKind.Create, title, bodyStatement.SourceSpan, children.ToArray());
+    }
+
+    /// <summary>
     /// UPDATE 文の主構造ノードを作る。
     /// </summary>
     private static DisplayTreeNode BuildUpdateNode(UpdateStatementAnalysis updateStatement)
@@ -329,9 +452,10 @@ public sealed class QueryAnalysisTreeBuilder
             return Node(DisplayTreeNodeKind.Section, "取得項目", Node("なし"));
         }
 
-        return Node(
+        return NodeWithSpan(
             DisplayTreeNodeKind.Section,
             "取得項目",
+            MergeSpans(query.SelectItems.Select(item => item.SourceSpan)),
             query.SelectItems
                 .Select(BuildSelectItemNode)
                 .ToArray());
@@ -382,9 +506,10 @@ public sealed class QueryAnalysisTreeBuilder
     /// </summary>
     private static DisplayTreeNode BuildCaseExpressionsNode(IReadOnlyList<CaseExpressionAnalysis> caseExpressions)
     {
-        return Node(
+        return NodeWithSpan(
             DisplayTreeNodeKind.Condition,
             "CASE式",
+            MergeSpans(caseExpressions.Select(caseExpression => caseExpression.SourceSpan)),
             caseExpressions.Select(BuildCaseExpressionNode).ToArray());
     }
 
@@ -482,9 +607,10 @@ public sealed class QueryAnalysisTreeBuilder
             return Node(DisplayTreeNodeKind.Condition, title, Node("なし"));
         }
 
-        return Node(
+        return NodeWithSpan(
             DisplayTreeNodeKind.Condition,
             title,
+            condition.SourceSpan,
             NodeWithSpan($"条件式: {condition.DisplayText}", condition.SourceSpan),
             BuildConditionLogicNode(condition));
     }
@@ -499,9 +625,10 @@ public sealed class QueryAnalysisTreeBuilder
             return Node(DisplayTreeNodeKind.DataModification, "更新内容", Node("なし"));
         }
 
-        return Node(
+        return NodeWithSpan(
             DisplayTreeNodeKind.DataModification,
             "更新内容",
+            MergeSpans(updateStatement.SetClauses.Select(setClause => setClause.SourceSpan)),
             updateStatement.SetClauses
                 .Select(setClause => Node(
                     DisplayTreeNodeKind.DataModification,
@@ -691,9 +818,10 @@ public sealed class QueryAnalysisTreeBuilder
             return Node(DisplayTreeNodeKind.Join, "結合", Node("なし"));
         }
 
-        return Node(
+        return NodeWithSpan(
             DisplayTreeNodeKind.Join,
             "結合",
+            MergeSpans(joins.Select(join => join.SourceSpan)),
             joins.Select(BuildJoinDetailNode).ToArray());
     }
 
@@ -730,7 +858,15 @@ public sealed class QueryAnalysisTreeBuilder
             children.Add(Node("なし"));
         }
 
-        return Node(DisplayTreeNodeKind.Section, "集計", children.ToArray());
+        return NodeWithSpan(
+            DisplayTreeNodeKind.Section,
+            "集計",
+            MergeSpans(
+                [
+                    query.GroupBy?.SourceSpan,
+                    query.HavingCondition?.SourceSpan
+                ]),
+            children.ToArray());
     }
 
     /// <summary>
@@ -782,6 +918,11 @@ public sealed class QueryAnalysisTreeBuilder
         if (result.CreateStatement is CreateTableAnalysis createTable && createTable.Query is not null)
         {
             return BuildSubqueryListNode(GetSubqueries(createTable.Query));
+        }
+
+        if (result.CreateStatement is CreateTriggerAnalysis createTrigger)
+        {
+            return BuildSubqueryListNode(GetSubqueries(createTrigger));
         }
 
         return Node(DisplayTreeNodeKind.Subquery, "サブクエリ", Node("なし"));
@@ -894,6 +1035,8 @@ public sealed class QueryAnalysisTreeBuilder
         {
             SourceKind.CommonTableExpressionReference => "CTE参照",
             SourceKind.DerivedTable => "派生テーブル",
+            SourceKind.InsertedPseudoTable => "inserted疑似テーブル",
+            SourceKind.DeletedPseudoTable => "deleted疑似テーブル",
             _ => "不明"
         };
 
@@ -942,9 +1085,10 @@ public sealed class QueryAnalysisTreeBuilder
             return Node(DisplayTreeNodeKind.Join, "ON条件", Node("なし"));
         }
 
-        return Node(
+        return NodeWithSpan(
             DisplayTreeNodeKind.Join,
             "ON条件",
+            MergeSpans(join.OnConditionParts.Select(part => part.SourceSpan)),
             join.OnConditionParts
                 .Select(part =>
                 {
@@ -1176,12 +1320,17 @@ public sealed class QueryAnalysisTreeBuilder
     {
         if (groupBy.GroupingItems.Count == 0)
         {
-            return Node(DisplayTreeNodeKind.Section, "GROUP BY", groupBy.Items.Select(item => Node(item)).ToArray());
+            return NodeWithSpan(
+                DisplayTreeNodeKind.Section,
+                "GROUP BY",
+                groupBy.SourceSpan,
+                groupBy.Items.Select(item => Node(item)).ToArray());
         }
 
-        return Node(
+        return NodeWithSpan(
             DisplayTreeNodeKind.Section,
             "GROUP BY",
+            groupBy.SourceSpan,
             groupBy.GroupingItems
                 .Select(groupingItem =>
                 {
@@ -1208,17 +1357,19 @@ public sealed class QueryAnalysisTreeBuilder
     {
         if (orderBy.OrderItems.Count == 0)
         {
-            return Node(
+            return NodeWithSpan(
                 DisplayTreeNodeKind.Section,
                 "並び順",
+                orderBy.SourceSpan,
                 orderBy.Items
                     .Select((item, index) => Node($"項目 #{index + 1}: {item}"))
                     .ToArray());
         }
 
-        return Node(
+        return NodeWithSpan(
             DisplayTreeNodeKind.Section,
             "並び順",
+            orderBy.SourceSpan,
             orderBy.OrderItems
                 .Select(orderItem =>
                 {
@@ -1244,9 +1395,10 @@ public sealed class QueryAnalysisTreeBuilder
     /// </summary>
     private static DisplayTreeNode BuildColumnReferencesNode(IReadOnlyList<ColumnReferenceAnalysis> columnReferences)
     {
-        return Node(
+        return NodeWithSpan(
             DisplayTreeNodeKind.ColumnReference,
             "参照列",
+            MergeSpans(columnReferences.Select(columnReference => columnReference.SourceSpan)),
             columnReferences
                 .Select(columnReference => NodeWithSpan(
                     DisplayTreeNodeKind.ColumnReference,
@@ -1312,6 +1464,24 @@ public sealed class QueryAnalysisTreeBuilder
     }
 
     /// <summary>
+    /// CREATE TRIGGER 配下のサブクエリ一覧を返す。
+    /// 本体文ごとに既存解析結果から集約する。
+    /// </summary>
+    private static IReadOnlyList<SubqueryAnalysis> GetSubqueries(CreateTriggerAnalysis createTrigger)
+    {
+        return createTrigger.BodyStatements
+            .SelectMany(bodyStatement => bodyStatement.Query is not null
+                ? GetSubqueries(bodyStatement.Query)
+                : bodyStatement.DataModification?.Subqueries
+                    ?? (bodyStatement.CreateStatement is CreateViewAnalysis createView
+                        ? GetSubqueries(createView.Query)
+                        : bodyStatement.CreateStatement is CreateTableAnalysis createTable && createTable.Query is not null
+                            ? GetSubqueries(createTable.Query)
+                            : []))
+            .ToArray();
+    }
+
+    /// <summary>
     /// 条件マーカーの表示名。
     /// </summary>
     private static string BuildMarkerText(ConditionMarkerType markerType)
@@ -1347,6 +1517,25 @@ public sealed class QueryAnalysisTreeBuilder
     private static DisplayTreeNode Node(string text, params DisplayTreeNode[] children)
     {
         return Node(DisplayTreeNodeKind.Detail, text, children);
+    }
+
+    /// <summary>
+    /// 複数 span をまとめて最小包含範囲へ変換する。
+    /// 見出しノードでもクリック時に対応 SQL を強調できるようにする。
+    /// </summary>
+    private static TextSpan? MergeSpans(IEnumerable<TextSpan?> spans)
+    {
+        var spanList = spans
+            .OfType<TextSpan>()
+            .ToArray();
+        if (spanList.Length == 0)
+        {
+            return null;
+        }
+
+        var start = spanList.Min(span => span.Start);
+        var end = spanList.Max(span => span.End);
+        return new TextSpan(start, end - start);
     }
 
     /// <summary>

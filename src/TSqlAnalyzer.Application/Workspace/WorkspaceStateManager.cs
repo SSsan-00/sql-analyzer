@@ -57,8 +57,8 @@ public sealed class WorkspaceStateManager
             [workspace],
             workspace.Id,
             query.Id,
-            IsWorkspaceListExpanded: true,
-            IsQueryListExpanded: true);
+            IsWorkspaceListExpanded: false,
+            IsQueryListExpanded: false);
     }
 
     /// <summary>

@@ -1228,6 +1228,51 @@ public sealed class QueryAnalysisServiceTests
     }
 
     /// <summary>
+    /// CREATE TRIGGER ... INSTEAD OF INSERT を解析し、対象・イベント・本体文を保持できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Analyze_CreateTriggerInsteadOfInsert_ReturnsTriggerStructure()
+    {
+        var service = CreateService();
+        const string sql = """
+                           CREATE TRIGGER trg_v_User_Insert
+                           ON v_User
+                           INSTEAD OF INSERT
+                           AS
+                           BEGIN
+                               INSERT INTO Users (name)
+                               SELECT
+                                   name
+                               FROM inserted;
+                           END
+                           """;
+
+        var result = service.Analyze(sql);
+
+        Assert.Equal(QueryStatementCategory.Create, result.StatementCategory);
+        var trigger = Assert.IsType<CreateTriggerAnalysis>(result.CreateStatement);
+        Assert.Equal(CreateStatementKind.Trigger, trigger.Kind);
+        Assert.Equal("trg_v_User_Insert", trigger.Name);
+        Assert.Equal(TriggerTimingKind.InsteadOf, trigger.TimingKind);
+        Assert.Equal("INSTEAD OF", trigger.TimingText);
+        Assert.Equal("v_User", trigger.Target?.DisplayText);
+
+        var triggerEvent = Assert.Single(trigger.Events);
+        Assert.Equal(TriggerEventKind.Insert, triggerEvent.Kind);
+        Assert.Equal("INSERT", triggerEvent.DisplayText);
+
+        var bodyStatement = Assert.Single(trigger.BodyStatements);
+        Assert.Equal(QueryStatementCategory.Insert, bodyStatement.StatementCategory);
+        Assert.Contains("INSERT INTO Users", bodyStatement.DisplayText, StringComparison.Ordinal);
+
+        var insert = Assert.IsType<InsertStatementAnalysis>(bodyStatement.DataModification);
+        Assert.Equal("Users", insert.Target.DisplayText);
+        var inputQuery = Assert.IsType<SelectQueryAnalysis>(insert.InsertSource?.Query);
+        Assert.Equal(SourceKind.InsertedPseudoTable, inputQuery.MainSource?.SourceKind);
+        Assert.Equal("inserted", inputQuery.MainSource?.DisplayText);
+    }
+
+    /// <summary>
     /// 空入力時に例外ではなく、利用者に返せる結果になることを確認する。
     /// </summary>
     [Fact]

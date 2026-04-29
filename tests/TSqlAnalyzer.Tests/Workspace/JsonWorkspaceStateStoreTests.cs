@@ -36,7 +36,7 @@ public sealed class JsonWorkspaceStateStoreTests
             Assert.Equal("調査用", loadedState.Workspaces[^1].Name);
             Assert.Equal("SELECT 42 AS Answer;", loadedState.Workspaces[^1].Queries[0].SqlText);
             Assert.False(loadedState.IsWorkspaceListExpanded);
-            Assert.True(loadedState.IsQueryListExpanded);
+            Assert.False(loadedState.IsQueryListExpanded);
         }
         finally
         {
@@ -81,8 +81,8 @@ public sealed class JsonWorkspaceStateStoreTests
 
             var loadedState = store.Load();
 
-            Assert.True(loadedState.IsWorkspaceListExpanded);
-            Assert.True(loadedState.IsQueryListExpanded);
+            Assert.False(loadedState.IsWorkspaceListExpanded);
+            Assert.False(loadedState.IsQueryListExpanded);
         }
         finally
         {

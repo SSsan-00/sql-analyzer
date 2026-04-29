@@ -42,6 +42,11 @@ public sealed class JsonWorkspaceStateStore
             if (state is not null)
             {
                 state = ApplyMissingUiFlags(json, state);
+                state = state with
+                {
+                    IsWorkspaceListExpanded = false,
+                    IsQueryListExpanded = false
+                };
             }
 
             return _workspaceStateManager.EnsureValidState(state);
@@ -79,8 +84,8 @@ public sealed class JsonWorkspaceStateStore
 
         return state with
         {
-            IsWorkspaceListExpanded = hasWorkspaceListExpanded ? state.IsWorkspaceListExpanded : true,
-            IsQueryListExpanded = hasQueryListExpanded ? state.IsQueryListExpanded : true
+            IsWorkspaceListExpanded = hasWorkspaceListExpanded ? state.IsWorkspaceListExpanded : false,
+            IsQueryListExpanded = hasQueryListExpanded ? state.IsQueryListExpanded : false
         };
     }
 }

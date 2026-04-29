@@ -1,6 +1,7 @@
 using TSqlAnalyzer.Application.Analysis;
 using TSqlAnalyzer.Application.Presentation;
 using TSqlAnalyzer.Application.Services;
+using TSqlAnalyzer.Domain.Analysis;
 
 namespace TSqlAnalyzer.Tests.Presentation;
 
@@ -408,6 +409,76 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("方向: DESC", flattenedTexts);
         Assert.Contains("項目 #2: u.Id", flattenedTexts);
         Assert.Contains("方向: ASC", flattenedTexts);
+    }
+
+    /// <summary>
+    /// 解析結果側の見出しノードをクリックしたときも、対応する SQL 断片を強調できる span が付いていることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForHighlightableSections_AssignsSourceSpansToSectionNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id,
+                               o.OrderNo
+                           FROM dbo.Users u
+                           LEFT JOIN dbo.Orders o
+                               ON u.Id = o.UserId
+                           WHERE o.Amount > 0
+                           ORDER BY o.OrderNo;
+                           """;
+
+        var analysis = service.Analyze(sql);
+        var tree = builder.Build(analysis);
+
+        var selectItemsNode = FindNodeByText(tree, "取得項目");
+        var joinsNode = FindNodeByText(tree, "結合");
+        var whereNode = FindNodeByText(tree, "抽出条件");
+        var orderByNode = FindNodeByText(tree, "並び順");
+
+        Assert.Equal("u.Id,\n    o.OrderNo", ExtractSpanText(sql, selectItemsNode));
+        Assert.Contains("LEFT JOIN dbo.Orders o", ExtractSpanText(sql, joinsNode), StringComparison.Ordinal);
+        Assert.Equal("o.Amount > 0", ExtractSpanText(sql, whereNode));
+        Assert.Contains("o.OrderNo", ExtractSpanText(sql, orderByNode), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// SQL 側のクリック位置から TreeView の意味ノードへ戻れることを確認する。
+    /// `式:` や参照列の補助行より、項目や条件などの主ノードを優先する。
+    /// </summary>
+    [Fact]
+    public void Build_AndNavigate_ForSqlSelection_ReturnsSemanticTreeNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           SELECT
+                               u.Id,
+                               o.OrderNo
+                           FROM dbo.Users u
+                           LEFT JOIN dbo.Orders o
+                               ON u.Id = o.UserId
+                           WHERE o.Amount > 0;
+                           """;
+
+        var analysis = service.Analyze(sql);
+        var tree = builder.Build(analysis);
+
+        var selectItemMatch = DisplayTreeNodeNavigator.FindBestMatch(
+            tree,
+            sql.IndexOf("o.OrderNo", StringComparison.Ordinal),
+            0);
+        var joinConditionMatch = DisplayTreeNodeNavigator.FindBestMatch(
+            tree,
+            sql.IndexOf("= o.UserId", StringComparison.Ordinal),
+            0);
+
+        Assert.NotNull(selectItemMatch);
+        Assert.Equal("項目 #2: o.OrderNo", selectItemMatch!.Text);
+        Assert.NotNull(joinConditionMatch);
+        Assert.Equal("条件 #1: u.Id = o.UserId", joinConditionMatch!.Text);
     }
 
     /// <summary>
@@ -967,6 +1038,45 @@ public sealed class QueryAnalysisTreeBuilderTests
         Assert.Contains("NULL許可: なし", createTableTexts);
     }
 
+    /// <summary>
+    /// CREATE TRIGGER ... INSTEAD OF INSERT の主要構造が TreeView で追えることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForCreateTrigger_ContainsTriggerNodes()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           CREATE TRIGGER trg_v_User_Insert
+                           ON v_User
+                           INSTEAD OF INSERT
+                           AS
+                           BEGIN
+                               INSERT INTO Users (name)
+                               SELECT
+                                   name
+                               FROM inserted;
+                           END
+                           """;
+
+        var analysis = service.Analyze(sql);
+        var tree = builder.Build(analysis);
+        var flattenedTexts = Flatten(tree).ToArray();
+
+        Assert.Contains("文: CREATE", flattenedTexts);
+        Assert.Contains("作成形式: TRIGGER", flattenedTexts);
+        Assert.Contains("名前: trg_v_User_Insert", flattenedTexts);
+        Assert.Contains("タイミング: INSTEAD OF", flattenedTexts);
+        Assert.Contains("イベント: INSERT", flattenedTexts);
+        Assert.Contains("トリガー情報", flattenedTexts);
+        Assert.Contains("対象", flattenedTexts);
+        Assert.Contains("INSTEAD OF 本体", flattenedTexts);
+        Assert.Contains("文 #1: INSERT", flattenedTexts);
+        Assert.Contains("挿入対象", flattenedTexts);
+        Assert.Contains("入力元", flattenedTexts);
+        Assert.Contains("分類: inserted疑似テーブル", flattenedTexts);
+    }
+
     private static IEnumerable<string> Flatten(DisplayTreeNode node)
     {
         yield return node.Text;
@@ -991,5 +1101,16 @@ public sealed class QueryAnalysisTreeBuilderTests
                 yield return descendant;
             }
         }
+    }
+
+    private static DisplayTreeNode FindNodeByText(DisplayTreeNode node, string text)
+    {
+        return FlattenNodes(node).First(child => child.Text == text);
+    }
+
+    private static string ExtractSpanText(string sql, DisplayTreeNode node)
+    {
+        var sourceSpan = Assert.IsType<TextSpan>(node.SourceSpan);
+        return sql.Substring(sourceSpan.Start, sourceSpan.Length).ReplaceLineEndings("\n");
     }
 }
