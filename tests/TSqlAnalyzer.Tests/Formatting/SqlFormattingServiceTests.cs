@@ -263,6 +263,35 @@ public sealed class SqlFormattingServiceTests
     }
 
     /// <summary>
+    /// CASE の WHEN 条件に AND / OR が含まれる場合は、条件部分だけを段落化して追いやすくする。
+    /// </summary>
+    [Fact]
+    public void Format_CaseWhenConditionWithLogicalOperators_BreaksConditionIntoParagraphs()
+    {
+        var formatter = new SqlFormattingService();
+
+        var result = formatter.Format(
+            """
+            select case when u.IsActive=1 and (u.Type='Retail' or u.Type='Wholesale') and exists(select 1 from dbo.Orders o where o.UserId=u.Id and o.Status='Open') then 'Target' else 'Other' end as Segment
+            from dbo.Users u
+            """);
+
+        Assert.True(result.IsSuccess);
+
+        var formatted = Normalize(result.FormattedSql);
+        Assert.Matches("\\n\\s{8}WHEN\\n", formatted);
+        Assert.Matches("\\n\\s{12}u\\.IsActive\\s*=\\s*1", formatted);
+        Assert.Matches("\\n\\s{12}AND\\s*\\(", formatted);
+        Assert.Matches("\\n\\s{16}u\\.Type\\s*=\\s*'Retail'", formatted);
+        Assert.Matches("\\n\\s{16}OR\\s+u\\.Type\\s*=\\s*'Wholesale'", formatted);
+        Assert.Matches("\\n\\s{12}\\)", formatted);
+        Assert.Matches("\\n\\s{12}AND\\s+EXISTS\\s*\\(", formatted);
+        Assert.Matches("\\n\\s{16}SELECT\\s+1\\n", formatted);
+        Assert.Matches("\\n\\s{12}\\)", formatted);
+        Assert.Matches("\\n\\s{12}THEN\\s+'Target'", formatted);
+    }
+
+    /// <summary>
     /// 関数の引数にサブクエリがある場合も、関数ブロックとして読みやすく展開されることを確認する。
     /// </summary>
     [Fact]

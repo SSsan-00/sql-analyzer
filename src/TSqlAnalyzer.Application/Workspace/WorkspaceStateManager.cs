@@ -41,7 +41,9 @@ public sealed class WorkspaceStateManager
         return new WorkspaceSessionState(
             clonedWorkspaces,
             selectedWorkspace.Id,
-            selectedQuery.Id);
+            selectedQuery.Id,
+            state.IsWorkspaceListExpanded,
+            state.IsQueryListExpanded);
     }
 
     /// <summary>
@@ -54,7 +56,9 @@ public sealed class WorkspaceStateManager
         return new WorkspaceSessionState(
             [workspace],
             workspace.Id,
-            query.Id);
+            query.Id,
+            IsWorkspaceListExpanded: true,
+            IsQueryListExpanded: true);
     }
 
     /// <summary>
@@ -72,7 +76,12 @@ public sealed class WorkspaceStateManager
             [query]);
 
         workspaces.Add(workspace);
-        return new WorkspaceSessionState(workspaces, workspace.Id, query.Id);
+        return new WorkspaceSessionState(
+            workspaces,
+            workspace.Id,
+            query.Id,
+            ensuredState.IsWorkspaceListExpanded,
+            ensuredState.IsQueryListExpanded);
     }
 
     /// <summary>
@@ -119,7 +128,9 @@ public sealed class WorkspaceStateManager
         return new WorkspaceSessionState(
             workspaces,
             ensuredState.SelectedWorkspaceId,
-            ensuredState.SelectedQueryId);
+            ensuredState.SelectedQueryId,
+            ensuredState.IsWorkspaceListExpanded,
+            ensuredState.IsQueryListExpanded);
     }
 
     /// <summary>
@@ -147,7 +158,9 @@ public sealed class WorkspaceStateManager
         return new WorkspaceSessionState(
             remainingWorkspaces,
             selectedWorkspace.Id,
-            selectedQuery.Id);
+            selectedQuery.Id,
+            ensuredState.IsWorkspaceListExpanded,
+            ensuredState.IsQueryListExpanded);
     }
 
     /// <summary>
@@ -171,7 +184,12 @@ public sealed class WorkspaceStateManager
         workspace.Queries.Add(query);
         workspaces[workspaceIndex] = workspace;
 
-        return new WorkspaceSessionState(workspaces, workspace.Id, query.Id);
+        return new WorkspaceSessionState(
+            workspaces,
+            workspace.Id,
+            query.Id,
+            ensuredState.IsWorkspaceListExpanded,
+            ensuredState.IsQueryListExpanded);
     }
 
     /// <summary>
@@ -235,7 +253,9 @@ public sealed class WorkspaceStateManager
         return new WorkspaceSessionState(
             workspaces,
             selectedWorkspace.Id,
-            selectedQuery.Id);
+            selectedQuery.Id,
+            ensuredState.IsWorkspaceListExpanded,
+            ensuredState.IsQueryListExpanded);
     }
 
     /// <summary>
@@ -254,7 +274,9 @@ public sealed class WorkspaceStateManager
         return new WorkspaceSessionState(
             ensuredState.Workspaces.Select(CloneWorkspace).ToList(),
             workspace.Id,
-            workspace.Queries[0].Id);
+            workspace.Queries[0].Id,
+            ensuredState.IsWorkspaceListExpanded,
+            ensuredState.IsQueryListExpanded);
     }
 
     /// <summary>
@@ -278,7 +300,9 @@ public sealed class WorkspaceStateManager
         return new WorkspaceSessionState(
             ensuredState.Workspaces.Select(CloneWorkspace).ToList(),
             workspace.Id,
-            query.Id);
+            query.Id,
+            ensuredState.IsWorkspaceListExpanded,
+            ensuredState.IsQueryListExpanded);
     }
 
     /// <summary>
@@ -310,6 +334,24 @@ public sealed class WorkspaceStateManager
         workspaces[workspaceIndex] = workspace;
 
         return ensuredState with { Workspaces = workspaces };
+    }
+
+    /// <summary>
+    /// ワークスペース一覧の展開状態を反転する。
+    /// </summary>
+    public WorkspaceSessionState ToggleWorkspaceListExpanded(WorkspaceSessionState state)
+    {
+        var ensuredState = EnsureValidState(state);
+        return ensuredState with { IsWorkspaceListExpanded = !ensuredState.IsWorkspaceListExpanded };
+    }
+
+    /// <summary>
+    /// クエリ一覧の展開状態を反転する。
+    /// </summary>
+    public WorkspaceSessionState ToggleQueryListExpanded(WorkspaceSessionState state)
+    {
+        var ensuredState = EnsureValidState(state);
+        return ensuredState with { IsQueryListExpanded = !ensuredState.IsQueryListExpanded };
     }
 
     /// <summary>

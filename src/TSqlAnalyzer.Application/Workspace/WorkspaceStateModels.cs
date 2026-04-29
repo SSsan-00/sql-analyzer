@@ -7,7 +7,9 @@ namespace TSqlAnalyzer.Application.Workspace;
 public sealed record WorkspaceSessionState(
     List<QueryWorkspaceState> Workspaces,
     string SelectedWorkspaceId,
-    string SelectedQueryId);
+    string SelectedQueryId,
+    bool IsWorkspaceListExpanded,
+    bool IsQueryListExpanded);
 
 /// <summary>
 /// ワークスペース 1 件分の状態。

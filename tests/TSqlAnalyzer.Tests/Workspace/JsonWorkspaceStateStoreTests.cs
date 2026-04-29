@@ -25,6 +25,7 @@ public sealed class JsonWorkspaceStateStoreTests
             var queryWorkspaceId = initialState.SelectedWorkspaceId;
             var queryId = initialState.SelectedQueryId;
             var stateToSave = manager.UpdateSelectedQuerySql(initialState, "SELECT 42 AS Answer;");
+            stateToSave = manager.ToggleWorkspaceListExpanded(stateToSave);
 
             store.Save(stateToSave);
 
@@ -34,6 +35,54 @@ public sealed class JsonWorkspaceStateStoreTests
             Assert.Equal(queryId, loadedState.SelectedQueryId);
             Assert.Equal("調査用", loadedState.Workspaces[^1].Name);
             Assert.Equal("SELECT 42 AS Answer;", loadedState.Workspaces[^1].Queries[0].SqlText);
+            Assert.False(loadedState.IsWorkspaceListExpanded);
+            Assert.True(loadedState.IsQueryListExpanded);
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 旧形式 JSON に開閉フラグがなくても、既定では展開状態で読み込めることを確認する。
+    /// </summary>
+    [Fact]
+    public void Load_LegacyJsonWithoutUiFlags_DefaultsListsToExpanded()
+    {
+        var manager = new WorkspaceStateManager();
+        var tempDirectory = Directory.CreateTempSubdirectory();
+
+        try
+        {
+            var filePath = Path.Combine(tempDirectory.FullName, "workspace-state.json");
+            var store = new JsonWorkspaceStateStore(filePath, manager);
+            File.WriteAllText(
+                filePath,
+                """
+                {
+                  "Workspaces": [
+                    {
+                      "Id": "workspace-1",
+                      "Name": "旧保存",
+                      "Queries": [
+                        {
+                          "Id": "query-1",
+                          "Name": "クエリ 1",
+                          "SqlText": "SELECT 1;"
+                        }
+                      ]
+                    }
+                  ],
+                  "SelectedWorkspaceId": "workspace-1",
+                  "SelectedQueryId": "query-1"
+                }
+                """);
+
+            var loadedState = store.Load();
+
+            Assert.True(loadedState.IsWorkspaceListExpanded);
+            Assert.True(loadedState.IsQueryListExpanded);
         }
         finally
         {

@@ -24,6 +24,8 @@ public sealed class WorkspaceStateManagerTests
         Assert.Equal("クエリ 1", state.Workspaces[0].Queries[0].Name);
         Assert.Equal(state.Workspaces[0].Id, state.SelectedWorkspaceId);
         Assert.Equal(state.Workspaces[0].Queries[0].Id, state.SelectedQueryId);
+        Assert.True(state.IsWorkspaceListExpanded);
+        Assert.True(state.IsQueryListExpanded);
     }
 
     /// <summary>
@@ -77,6 +79,26 @@ public sealed class WorkspaceStateManagerTests
         var updatedState = manager.MoveWorkspace(state, firstWorkspaceId, 99);
 
         Assert.Equal(firstWorkspaceId, updatedState.Workspaces[^1].Id);
+    }
+
+    /// <summary>
+    /// 一覧展開状態はトグルごとに反転し、他の選択状態は維持されることを確認する。
+    /// </summary>
+    [Fact]
+    public void ToggleListExpanded_FlipsOnlyTargetFlag()
+    {
+        var manager = new WorkspaceStateManager();
+        var state = manager.AddWorkspace(manager.EnsureValidState(null), "検証用 2");
+        var selectedWorkspaceId = state.SelectedWorkspaceId;
+        var selectedQueryId = state.SelectedQueryId;
+
+        state = manager.ToggleWorkspaceListExpanded(state);
+        var updatedState = manager.ToggleQueryListExpanded(state);
+
+        Assert.False(updatedState.IsWorkspaceListExpanded);
+        Assert.False(updatedState.IsQueryListExpanded);
+        Assert.Equal(selectedWorkspaceId, updatedState.SelectedWorkspaceId);
+        Assert.Equal(selectedQueryId, updatedState.SelectedQueryId);
     }
 
     /// <summary>

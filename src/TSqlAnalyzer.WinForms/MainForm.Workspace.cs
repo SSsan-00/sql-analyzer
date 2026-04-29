@@ -13,6 +13,8 @@ public partial class MainForm
     private readonly JsonWorkspaceStateStore _workspaceStateStore;
 
     private TableLayoutPanel _workspacePanel = null!;
+    private Button _workspaceListToggleButton = null!;
+    private Button _queryListToggleButton = null!;
     private ListBox _workspaceListBox = null!;
     private ListBox _queryListBox = null!;
     private System.Windows.Forms.Timer _workspaceSaveTimer = null!;
@@ -29,6 +31,8 @@ public partial class MainForm
     /// </summary>
     private void InitializeWorkspaceUi()
     {
+        _workspaceListToggleButton = CreateWorkspaceHeaderToggleButton(WorkspaceListToggleButton_Click);
+        _queryListToggleButton = CreateWorkspaceHeaderToggleButton(QueryListToggleButton_Click);
         _workspaceListBox = CreateWorkspaceListBox();
         _queryListBox = CreateQueryListBox();
         _workspacePanel = CreateWorkspacePanel();
@@ -40,6 +44,8 @@ public partial class MainForm
         _workspaceSaveTimer.Tick += WorkspaceSaveTimer_Tick;
         FormClosing += MainForm_FormClosing;
 
+        buttonPanel.Controls.Add(_workspaceListToggleButton);
+        buttonPanel.Controls.Add(_queryListToggleButton);
         mainSplitContainer.Panel1.Controls.Add(_workspacePanel);
         mainSplitContainer.Panel1.Controls.SetChildIndex(inputLabel, 0);
         mainSplitContainer.Panel1.Controls.SetChildIndex(_workspacePanel, 1);
@@ -196,6 +202,24 @@ public partial class MainForm
     }
 
     /// <summary>
+    /// 画面ヘッダーへ置く一覧開閉ボタンを作る。
+    /// ワークスペースパネルの表示量を素早く切り替えるため、上部ツールバーへ出す。
+    /// </summary>
+    private static Button CreateWorkspaceHeaderToggleButton(EventHandler onClick)
+    {
+        var button = new Button
+        {
+            AutoSize = true,
+            Margin = new Padding(8, 0, 0, 0),
+            Padding = new Padding(12, 6, 12, 6),
+            UseVisualStyleBackColor = true
+        };
+
+        button.Click += onClick;
+        return button;
+    }
+
+    /// <summary>
     /// 現在の状態をコンボボックスと一覧へ反映する。
     /// </summary>
     private void BindWorkspaceControls()
@@ -223,6 +247,8 @@ public partial class MainForm
             _workspaceListBox.SelectedIndex = selectedWorkspaceIndex >= 0 ? selectedWorkspaceIndex : 0;
 
             BindQueryListBox();
+            ApplyWorkspaceListVisibility();
+            UpdateWorkspaceHeaderToggleButtons();
         }
         finally
         {
@@ -254,6 +280,29 @@ public partial class MainForm
         var selectedQueryIndex = selectedWorkspace.Queries.FindIndex(
             query => query.Id == _workspaceState.SelectedQueryId);
         _queryListBox.SelectedIndex = selectedQueryIndex >= 0 ? selectedQueryIndex : 0;
+    }
+
+    /// <summary>
+    /// 一覧の開閉状態を UI へ反映する。
+    /// 非表示時は ListBox 自体を隠し、上部ヘッダーだけ残して縦幅を節約する。
+    /// </summary>
+    private void ApplyWorkspaceListVisibility()
+    {
+        _workspaceListBox.Visible = _workspaceState.IsWorkspaceListExpanded;
+        _queryListBox.Visible = _workspaceState.IsQueryListExpanded;
+    }
+
+    /// <summary>
+    /// 画面ヘッダー上のトグルボタン文言を現在状態へ合わせる。
+    /// </summary>
+    private void UpdateWorkspaceHeaderToggleButtons()
+    {
+        _workspaceListToggleButton.Text = _workspaceState.IsWorkspaceListExpanded
+            ? "ワークスペース一覧 ▼"
+            : "ワークスペース一覧 ▶";
+        _queryListToggleButton.Text = _workspaceState.IsQueryListExpanded
+            ? "クエリ一覧 ▼"
+            : "クエリ一覧 ▶";
     }
 
     /// <summary>
@@ -574,6 +623,28 @@ public partial class MainForm
         _workspaceState = _workspaceStateManager.DeleteQuery(_workspaceState, selectedWorkspace.Id, item.Query.Id);
         BindWorkspaceControls();
         ApplySelectedQueryToEditor();
+        ScheduleWorkspaceSave();
+    }
+
+    /// <summary>
+    /// ワークスペース一覧の表示・非表示を切り替える。
+    /// </summary>
+    private void WorkspaceListToggleButton_Click(object? sender, EventArgs e)
+    {
+        _workspaceState = _workspaceStateManager.ToggleWorkspaceListExpanded(_workspaceState);
+        ApplyWorkspaceListVisibility();
+        UpdateWorkspaceHeaderToggleButtons();
+        ScheduleWorkspaceSave();
+    }
+
+    /// <summary>
+    /// クエリ一覧の表示・非表示を切り替える。
+    /// </summary>
+    private void QueryListToggleButton_Click(object? sender, EventArgs e)
+    {
+        _workspaceState = _workspaceStateManager.ToggleQueryListExpanded(_workspaceState);
+        ApplyWorkspaceListVisibility();
+        UpdateWorkspaceHeaderToggleButtons();
         ScheduleWorkspaceSave();
     }
 

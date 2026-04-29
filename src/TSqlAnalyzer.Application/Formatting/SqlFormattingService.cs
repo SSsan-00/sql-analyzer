@@ -370,10 +370,7 @@ public sealed class SqlFormattingService
                 lines.Add(Indent(indentLevel) + "CASE");
                 foreach (var whenClause in searchedCaseExpression.WhenClauses)
                 {
-                    lines.Add(
-                        Indent(indentLevel + 1)
-                        + "WHEN "
-                        + GenerateLeafScript(whenClause.WhenExpression));
+                    lines.AddRange(FormatCaseWhenCondition(whenClause.WhenExpression, indentLevel + 1));
                     lines.AddRange(FormatCaseThenExpression(whenClause.ThenExpression, indentLevel + 2));
                 }
 
@@ -389,6 +386,41 @@ public sealed class SqlFormattingService
         }
 
         lines.Add(Indent(indentLevel) + "END");
+        return lines;
+    }
+
+    /// <summary>
+    /// searched CASE の WHEN 条件を整形する。
+    /// AND / OR を含むときは WHEN 行と条件ブロックを分け、条件のまとまりを追いやすくする。
+    /// </summary>
+    private List<string> FormatCaseWhenCondition(BooleanExpression expression, int indentLevel)
+    {
+        if (!RequiresMultilineCaseWhenCondition(expression))
+        {
+            return [Indent(indentLevel) + "WHEN " + GenerateLeafScript(expression)];
+        }
+
+        var lines = new List<string>
+        {
+            Indent(indentLevel) + "WHEN"
+        };
+
+        if (TryFlattenLogicalChain(expression, out var operatorKeyword, out var operands))
+        {
+            lines.AddRange(FormatBooleanOperandBlock(operands[0], indentLevel + 1, prefixOperator: null));
+
+            for (var index = 1; index < operands.Count; index++)
+            {
+                lines.AddRange(FormatBooleanOperandBlock(
+                    operands[index],
+                    indentLevel + 1,
+                    prefixOperator: operatorKeyword));
+            }
+
+            return lines;
+        }
+
+        lines.AddRange(FormatBooleanOperandBlock(expression, indentLevel + 1, prefixOperator: null));
         return lines;
     }
 
@@ -1136,6 +1168,22 @@ public sealed class SqlFormattingService
         }
 
         operands.Add(expression);
+    }
+
+    /// <summary>
+    /// CASE の WHEN 条件で AND / OR の段落化が必要かを判定する。
+    /// </summary>
+    private static bool RequiresMultilineCaseWhenCondition(BooleanExpression expression)
+    {
+        return expression switch
+        {
+            BooleanBinaryExpression => true,
+            BooleanParenthesisExpression booleanParenthesisExpression =>
+                RequiresMultilineCaseWhenCondition(booleanParenthesisExpression.Expression),
+            BooleanNotExpression booleanNotExpression =>
+                RequiresMultilineCaseWhenCondition(booleanNotExpression.Expression),
+            _ => false
+        };
     }
 
     /// <summary>

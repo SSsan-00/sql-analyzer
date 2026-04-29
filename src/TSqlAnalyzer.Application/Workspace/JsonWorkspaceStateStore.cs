@@ -39,6 +39,11 @@ public sealed class JsonWorkspaceStateStore
         {
             var json = File.ReadAllText(_filePath);
             var state = JsonSerializer.Deserialize<WorkspaceSessionState>(json, SerializerOptions);
+            if (state is not null)
+            {
+                state = ApplyMissingUiFlags(json, state);
+            }
+
             return _workspaceStateManager.EnsureValidState(state);
         }
         catch
@@ -62,5 +67,20 @@ public sealed class JsonWorkspaceStateStore
 
         var json = JsonSerializer.Serialize(normalizedState, SerializerOptions);
         File.WriteAllText(_filePath, json);
+    }
+
+    /// <summary>
+    /// 旧バージョンの保存データに開閉フラグがない場合は、既定で展開状態を補う。
+    /// </summary>
+    private static WorkspaceSessionState ApplyMissingUiFlags(string json, WorkspaceSessionState state)
+    {
+        var hasWorkspaceListExpanded = json.Contains("\"IsWorkspaceListExpanded\"", StringComparison.OrdinalIgnoreCase);
+        var hasQueryListExpanded = json.Contains("\"IsQueryListExpanded\"", StringComparison.OrdinalIgnoreCase);
+
+        return state with
+        {
+            IsWorkspaceListExpanded = hasWorkspaceListExpanded ? state.IsWorkspaceListExpanded : true,
+            IsQueryListExpanded = hasQueryListExpanded ? state.IsQueryListExpanded : true
+        };
     }
 }
