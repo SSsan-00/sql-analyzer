@@ -12,11 +12,12 @@ public partial class MainForm
     private readonly WorkspaceStateManager _workspaceStateManager;
     private readonly JsonWorkspaceStateStore _workspaceStateStore;
 
-    private TableLayoutPanel _workspacePanel = null!;
     private Button _workspaceListToggleButton = null!;
     private Button _queryListToggleButton = null!;
     private ListBox _workspaceListBox = null!;
     private ListBox _queryListBox = null!;
+    private ToolStripDropDown _workspaceListDropDown = null!;
+    private ToolStripDropDown _queryListDropDown = null!;
     private System.Windows.Forms.Timer _workspaceSaveTimer = null!;
     private Point _workspaceDragStartPoint;
     private int _workspaceDragSourceIndex = -1;
@@ -27,7 +28,7 @@ public partial class MainForm
 
     /// <summary>
     /// ワークスペース UI を初期化する。
-    /// 既存レイアウトへ上部パネルとして差し込み、SQL 入力欄の上に一覧を置く。
+    /// 一覧は画面上部に常設せず、ヘッダボタンから開くポップアップとして扱う。
     /// </summary>
     private void InitializeWorkspaceUi()
     {
@@ -35,7 +36,8 @@ public partial class MainForm
         _queryListToggleButton = CreateWorkspaceHeaderToggleButton(QueryListToggleButton_Click);
         _workspaceListBox = CreateWorkspaceListBox();
         _queryListBox = CreateQueryListBox();
-        _workspacePanel = CreateWorkspacePanel();
+        _workspaceListDropDown = CreateWorkspaceListDropDown();
+        _queryListDropDown = CreateQueryListDropDown();
         _workspaceSaveTimer = new System.Windows.Forms.Timer(components!)
         {
             Interval = 800
@@ -46,11 +48,6 @@ public partial class MainForm
 
         buttonPanel.Controls.Add(_workspaceListToggleButton);
         buttonPanel.Controls.Add(_queryListToggleButton);
-        mainSplitContainer.Panel1.Controls.Add(_workspacePanel);
-        mainSplitContainer.Panel1.Controls.SetChildIndex(inputLabel, 0);
-        mainSplitContainer.Panel1.Controls.SetChildIndex(_workspacePanel, 1);
-        mainSplitContainer.Panel1.Controls.SetChildIndex(findPanel, 2);
-        mainSplitContainer.Panel1.Controls.SetChildIndex(sqlTextBox, 3);
     }
 
     /// <summary>
@@ -64,31 +61,77 @@ public partial class MainForm
     }
 
     /// <summary>
-    /// ワークスペース UI 全体を構築する。
+    /// ワークスペース一覧ポップアップを構築する。
     /// </summary>
-    private TableLayoutPanel CreateWorkspacePanel()
+    private ToolStripDropDown CreateWorkspaceListDropDown()
     {
         var panel = new TableLayoutPanel
         {
-            AutoSize = true,
             ColumnCount = 1,
-            Dock = DockStyle.Top,
+            Dock = DockStyle.Fill,
             Margin = new Padding(0),
-            Name = "workspacePanel",
-            Padding = new Padding(0, 0, 0, 8),
-            RowCount = 4
+            Name = "workspacePopupPanel",
+            Padding = new Padding(8),
+            RowCount = 2,
+            Size = new Size(360, 240)
         };
 
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
         panel.Controls.Add(CreateWorkspaceHeaderPanel(), 0, 0);
         panel.Controls.Add(_workspaceListBox, 0, 1);
-        panel.Controls.Add(CreateQueryHeaderPanel(), 0, 2);
-        panel.Controls.Add(_queryListBox, 0, 3);
-        return panel;
+        return CreateWorkspacePopupDropDown(panel);
+    }
+
+    /// <summary>
+    /// クエリ一覧ポップアップを構築する。
+    /// </summary>
+    private ToolStripDropDown CreateQueryListDropDown()
+    {
+        var panel = new TableLayoutPanel
+        {
+            ColumnCount = 1,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0),
+            Name = "queryPopupPanel",
+            Padding = new Padding(8),
+            RowCount = 2,
+            Size = new Size(340, 250)
+        };
+
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        panel.Controls.Add(CreateQueryHeaderPanel(), 0, 0);
+        panel.Controls.Add(_queryListBox, 0, 1);
+        return CreateWorkspacePopupDropDown(panel);
+    }
+
+    /// <summary>
+    /// ポップアップへ任意のコントロールを載せるための ToolStripDropDown を作る。
+    /// </summary>
+    private static ToolStripDropDown CreateWorkspacePopupDropDown(Control content)
+    {
+        var host = new ToolStripControlHost(content)
+        {
+            AutoSize = false,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+            Size = content.Size
+        };
+
+        var dropDown = new ToolStripDropDown
+        {
+            AutoClose = false,
+            AutoSize = false,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+            Size = content.Size
+        };
+
+        dropDown.Items.Add(host);
+        return dropDown;
     }
 
     /// <summary>
@@ -99,7 +142,7 @@ public partial class MainForm
         var panel = new FlowLayoutPanel
         {
             AutoSize = true,
-            Dock = DockStyle.Top,
+            Dock = DockStyle.Fill,
             Margin = new Padding(0, 0, 0, 6),
             WrapContents = false
         };
@@ -152,9 +195,8 @@ public partial class MainForm
         var listBox = new ListBox
         {
             AllowDrop = true,
-            Dock = DockStyle.Top,
+            Dock = DockStyle.Fill,
             Font = new Font("Yu Gothic UI", 9F),
-            Height = 96,
             IntegralHeight = false
         };
 
@@ -174,9 +216,8 @@ public partial class MainForm
     {
         var listBox = new ListBox
         {
-            Dock = DockStyle.Top,
+            Dock = DockStyle.Fill,
             Font = new Font("Yu Gothic UI", 9F),
-            Height = 110,
             IntegralHeight = false
         };
 
@@ -220,7 +261,7 @@ public partial class MainForm
     }
 
     /// <summary>
-    /// 現在の状態をコンボボックスと一覧へ反映する。
+    /// 現在の状態を一覧へ反映する。
     /// </summary>
     private void BindWorkspaceControls()
     {
@@ -247,7 +288,6 @@ public partial class MainForm
             _workspaceListBox.SelectedIndex = selectedWorkspaceIndex >= 0 ? selectedWorkspaceIndex : 0;
 
             BindQueryListBox();
-            ApplyWorkspaceListVisibility();
             UpdateWorkspaceHeaderToggleButtons();
         }
         finally
@@ -283,26 +323,17 @@ public partial class MainForm
     }
 
     /// <summary>
-    /// 一覧の開閉状態を UI へ反映する。
-    /// 非表示時は ListBox 自体を隠し、上部ヘッダーだけ残して縦幅を節約する。
-    /// </summary>
-    private void ApplyWorkspaceListVisibility()
-    {
-        _workspaceListBox.Visible = _workspaceState.IsWorkspaceListExpanded;
-        _queryListBox.Visible = _workspaceState.IsQueryListExpanded;
-    }
-
     /// <summary>
-    /// 画面ヘッダー上のトグルボタン文言を現在状態へ合わせる。
+    /// 画面ヘッダー上のボタン文言をポップアップ表示状態へ合わせる。
     /// </summary>
     private void UpdateWorkspaceHeaderToggleButtons()
     {
-        _workspaceListToggleButton.Text = _workspaceState.IsWorkspaceListExpanded
-            ? "ワークスペース一覧 ▼"
-            : "ワークスペース一覧 ▶";
-        _queryListToggleButton.Text = _workspaceState.IsQueryListExpanded
-            ? "クエリ一覧 ▼"
-            : "クエリ一覧 ▶";
+        _workspaceListToggleButton.Text = _workspaceListDropDown.Visible
+            ? "ワークスペース一覧 ▲"
+            : "ワークスペース一覧 ▼";
+        _queryListToggleButton.Text = _queryListDropDown.Visible
+            ? "クエリ一覧 ▲"
+            : "クエリ一覧 ▼";
     }
 
     /// <summary>
@@ -417,6 +448,7 @@ public partial class MainForm
         _workspaceState = _workspaceStateManager.SelectWorkspace(_workspaceState, item.Workspace.Id);
         BindWorkspaceControls();
         ApplySelectedQueryToEditor();
+        HideWorkspaceDropDowns();
         ScheduleWorkspaceSave();
     }
 
@@ -434,6 +466,7 @@ public partial class MainForm
         _workspaceState = _workspaceStateManager.SelectQuery(_workspaceState, selectedWorkspace.Id, item.Query.Id);
         BindWorkspaceControls();
         ApplySelectedQueryToEditor();
+        HideWorkspaceDropDowns();
         ScheduleWorkspaceSave();
     }
 
@@ -442,6 +475,7 @@ public partial class MainForm
     /// </summary>
     private void WorkspaceAddButton_Click(object? sender, EventArgs e)
     {
+        HideWorkspaceDropDowns();
         var workspaceName = TextPromptDialog.Show(
             this,
             "ワークスペース追加",
@@ -468,6 +502,7 @@ public partial class MainForm
             return;
         }
 
+        HideWorkspaceDropDowns();
         var workspaceName = TextPromptDialog.Show(
             this,
             "ワークスペース名変更",
@@ -493,6 +528,7 @@ public partial class MainForm
             return;
         }
 
+        HideWorkspaceDropDowns();
         if (MessageBox.Show(
                 this,
                 $"ワークスペース「{item.Workspace.Name}」を削除しますか。",
@@ -557,6 +593,7 @@ public partial class MainForm
     private void QueryAddButton_Click(object? sender, EventArgs e)
     {
         var selectedWorkspace = _workspaceStateManager.GetSelectedWorkspace(_workspaceState);
+        HideWorkspaceDropDowns();
         var queryName = TextPromptDialog.Show(
             this,
             "クエリ追加",
@@ -584,6 +621,7 @@ public partial class MainForm
         }
 
         var selectedWorkspace = _workspaceStateManager.GetSelectedWorkspace(_workspaceState);
+        HideWorkspaceDropDowns();
         var queryName = TextPromptDialog.Show(
             this,
             "クエリ名変更",
@@ -609,6 +647,7 @@ public partial class MainForm
             return;
         }
 
+        HideWorkspaceDropDowns();
         if (MessageBox.Show(
                 this,
                 $"クエリ「{item.Query.Name}」を削除しますか。",
@@ -627,25 +666,47 @@ public partial class MainForm
     }
 
     /// <summary>
-    /// ワークスペース一覧の表示・非表示を切り替える。
+    /// ワークスペース一覧ポップアップの表示を切り替える。
     /// </summary>
     private void WorkspaceListToggleButton_Click(object? sender, EventArgs e)
     {
-        _workspaceState = _workspaceStateManager.ToggleWorkspaceListExpanded(_workspaceState);
-        ApplyWorkspaceListVisibility();
-        UpdateWorkspaceHeaderToggleButtons();
-        ScheduleWorkspaceSave();
+        ToggleWorkspaceDropDown(_workspaceListToggleButton, _workspaceListDropDown, _queryListDropDown);
     }
 
     /// <summary>
-    /// クエリ一覧の表示・非表示を切り替える。
+    /// クエリ一覧ポップアップの表示を切り替える。
     /// </summary>
     private void QueryListToggleButton_Click(object? sender, EventArgs e)
     {
-        _workspaceState = _workspaceStateManager.ToggleQueryListExpanded(_workspaceState);
-        ApplyWorkspaceListVisibility();
+        ToggleWorkspaceDropDown(_queryListToggleButton, _queryListDropDown, _workspaceListDropDown);
+    }
+
+    /// <summary>
+    /// 指定したポップアップをトグル表示する。
+    /// 開く前に相手側ポップアップは閉じる。
+    /// </summary>
+    private void ToggleWorkspaceDropDown(Control anchor, ToolStripDropDown targetDropDown, ToolStripDropDown otherDropDown)
+    {
+        if (targetDropDown.Visible)
+        {
+            targetDropDown.Close();
+            UpdateWorkspaceHeaderToggleButtons();
+            return;
+        }
+
+        otherDropDown.Close();
+        targetDropDown.Show(anchor, new Point(0, anchor.Height));
         UpdateWorkspaceHeaderToggleButtons();
-        ScheduleWorkspaceSave();
+    }
+
+    /// <summary>
+    /// 開いているワークスペース系ポップアップを閉じる。
+    /// </summary>
+    private void HideWorkspaceDropDowns()
+    {
+        _workspaceListDropDown.Close();
+        _queryListDropDown.Close();
+        UpdateWorkspaceHeaderToggleButtons();
     }
 
     /// <summary>
