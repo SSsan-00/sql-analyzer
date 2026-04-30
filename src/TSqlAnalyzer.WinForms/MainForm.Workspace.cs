@@ -45,6 +45,8 @@ public partial class MainForm
 
         _workspaceSaveTimer.Tick += WorkspaceSaveTimer_Tick;
         FormClosing += MainForm_FormClosing;
+        _workspaceListDropDown.Closed += WorkspaceDropDown_Closed;
+        _queryListDropDown.Closed += WorkspaceDropDown_Closed;
 
         buttonPanel.Controls.Add(_workspaceListToggleButton);
         buttonPanel.Controls.Add(_queryListToggleButton);
@@ -123,7 +125,7 @@ public partial class MainForm
 
         var dropDown = new ToolStripDropDown
         {
-            AutoClose = false,
+            AutoClose = true,
             AutoSize = false,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
@@ -132,6 +134,14 @@ public partial class MainForm
 
         dropDown.Items.Add(host);
         return dropDown;
+    }
+
+    /// <summary>
+    /// 外側クリックなどでポップアップが閉じたとき、ヘッダボタン表示を戻す。
+    /// </summary>
+    private void WorkspaceDropDown_Closed(object? sender, ToolStripDropDownClosedEventArgs e)
+    {
+        UpdateWorkspaceHeaderToggleButtons();
     }
 
     /// <summary>
