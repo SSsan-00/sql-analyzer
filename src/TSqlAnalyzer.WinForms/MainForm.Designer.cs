@@ -16,6 +16,7 @@ partial class MainForm
     private Label detailLabel = null!;
     private SplitContainer mainSplitContainer = null!;
     private FlowLayoutPanel findPanel = null!;
+    private FlowLayoutPanel resultHeaderPanel = null!;
     private FlowLayoutPanel resultSearchPanel = null!;
     private Label findLabel = null!;
     private Label resultSearchLabel = null!;
@@ -71,6 +72,7 @@ partial class MainForm
         findPreviousButton = new Button();
         closeFindButton = new Button();
         inputLabel = new Label();
+        resultHeaderPanel = new FlowLayoutPanel();
         resultSearchPanel = new FlowLayoutPanel();
         resultSearchLabel = new Label();
         resultSearchTextBox = new TextBox();
@@ -90,6 +92,7 @@ partial class MainForm
         mainSplitContainer.Panel2.SuspendLayout();
         mainSplitContainer.SuspendLayout();
         findPanel.SuspendLayout();
+        resultHeaderPanel.SuspendLayout();
         resultSearchPanel.SuspendLayout();
         resultDetailPanel.SuspendLayout();
         SuspendLayout();
@@ -200,8 +203,7 @@ partial class MainForm
         //
         mainSplitContainer.Panel2.Controls.Add(resultTreeView);
         mainSplitContainer.Panel2.Controls.Add(resultDetailPanel);
-        mainSplitContainer.Panel2.Controls.Add(resultSearchPanel);
-        mainSplitContainer.Panel2.Controls.Add(resultLabel);
+        mainSplitContainer.Panel2.Controls.Add(resultHeaderPanel);
         mainSplitContainer.Panel2.Padding = new Padding(8, 0, 0, 0);
         mainSplitContainer.Size = new Size(1256, 687);
         mainSplitContainer.SplitterDistance = 610;
@@ -312,16 +314,28 @@ partial class MainForm
         sqlTextBox.SelectionChanged += SqlTextBox_SelectionChanged;
         sqlTextBox.KeyDown += SqlTextBox_KeyDown;
         //
+        // resultHeaderPanel
+        // 解析結果ラベルとツリー検索 UI を横並びで置く。
+        //
+        resultHeaderPanel.AutoSize = true;
+        resultHeaderPanel.Controls.Add(resultLabel);
+        resultHeaderPanel.Controls.Add(resultSearchPanel);
+        resultHeaderPanel.Dock = DockStyle.Top;
+        resultHeaderPanel.Location = new Point(8, 0);
+        resultHeaderPanel.Margin = new Padding(0, 0, 0, 8);
+        resultHeaderPanel.Name = "resultHeaderPanel";
+        resultHeaderPanel.Size = new Size(630, 31);
+        resultHeaderPanel.TabIndex = 0;
+        resultHeaderPanel.WrapContents = false;
+        //
         // resultLabel
         // 解析結果欄の説明ラベル。
         //
         resultLabel.AutoSize = true;
-        resultLabel.Dock = DockStyle.Top;
-        resultLabel.Location = new Point(8, 0);
-        resultLabel.Margin = new Padding(0, 0, 0, 8);
+        resultLabel.Location = new Point(0, 7);
+        resultLabel.Margin = new Padding(0, 7, 16, 0);
         resultLabel.Name = "resultLabel";
-        resultLabel.Padding = new Padding(0, 0, 0, 8);
-        resultLabel.Size = new Size(76, 31);
+        resultLabel.Size = new Size(52, 15);
         resultLabel.TabIndex = 0;
         resultLabel.Text = "解析結果";
         //
@@ -335,13 +349,13 @@ partial class MainForm
         resultSearchPanel.Controls.Add(resultSearchPreviousButton);
         resultSearchPanel.Controls.Add(resultFilterButton);
         resultSearchPanel.Controls.Add(resultFilterClearButton);
-        resultSearchPanel.Dock = DockStyle.Top;
-        resultSearchPanel.Location = new Point(8, 31);
-        resultSearchPanel.Margin = new Padding(0, 0, 0, 8);
+        resultSearchPanel.Location = new Point(68, 0);
+        resultSearchPanel.Margin = new Padding(0);
         resultSearchPanel.Name = "resultSearchPanel";
-        resultSearchPanel.Padding = new Padding(0, 0, 0, 8);
-        resultSearchPanel.Size = new Size(630, 39);
+        resultSearchPanel.Padding = new Padding(0);
+        resultSearchPanel.Size = new Size(507, 31);
         resultSearchPanel.TabIndex = 1;
+        resultSearchPanel.WrapContents = false;
         //
         // resultSearchLabel
         // TreeView 検索欄の説明ラベル。
@@ -494,6 +508,8 @@ partial class MainForm
         mainSplitContainer.ResumeLayout(false);
         findPanel.ResumeLayout(false);
         findPanel.PerformLayout();
+        resultHeaderPanel.ResumeLayout(false);
+        resultHeaderPanel.PerformLayout();
         resultSearchPanel.ResumeLayout(false);
         resultSearchPanel.PerformLayout();
         resultDetailPanel.ResumeLayout(false);
