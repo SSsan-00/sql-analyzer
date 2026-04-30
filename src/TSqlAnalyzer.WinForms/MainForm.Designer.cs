@@ -11,6 +11,7 @@ partial class MainForm
 
     private TableLayoutPanel mainLayoutPanel = null!;
     private FlowLayoutPanel buttonPanel = null!;
+    private FlowLayoutPanel inputHeaderPanel = null!;
     private Label inputLabel = null!;
     private Label resultLabel = null!;
     private Label detailLabel = null!;
@@ -65,6 +66,7 @@ partial class MainForm
         exportTextButton = new Button();
         mainSplitContainer = new SplitContainer();
         sqlTextBox = new RichTextBox();
+        inputHeaderPanel = new FlowLayoutPanel();
         findPanel = new FlowLayoutPanel();
         findLabel = new Label();
         findTextBox = new TextBox();
@@ -91,6 +93,7 @@ partial class MainForm
         mainSplitContainer.Panel1.SuspendLayout();
         mainSplitContainer.Panel2.SuspendLayout();
         mainSplitContainer.SuspendLayout();
+        inputHeaderPanel.SuspendLayout();
         findPanel.SuspendLayout();
         resultHeaderPanel.SuspendLayout();
         resultSearchPanel.SuspendLayout();
@@ -196,7 +199,7 @@ partial class MainForm
         //
         mainSplitContainer.Panel1.Controls.Add(sqlTextBox);
         mainSplitContainer.Panel1.Controls.Add(findPanel);
-        mainSplitContainer.Panel1.Controls.Add(inputLabel);
+        mainSplitContainer.Panel1.Controls.Add(inputHeaderPanel);
         mainSplitContainer.Panel1.Padding = new Padding(0, 0, 8, 0);
         //
         // mainSplitContainer.Panel2
@@ -209,16 +212,27 @@ partial class MainForm
         mainSplitContainer.SplitterDistance = 610;
         mainSplitContainer.TabIndex = 1;
         //
+        // inputHeaderPanel
+        // 左右ペインの上端を揃えるため、入力欄側も専用ヘッダ行へまとめる。
+        //
+        inputHeaderPanel.AutoSize = true;
+        inputHeaderPanel.Controls.Add(inputLabel);
+        inputHeaderPanel.Dock = DockStyle.Top;
+        inputHeaderPanel.Location = new Point(0, 0);
+        inputHeaderPanel.Margin = new Padding(0, 0, 0, 8);
+        inputHeaderPanel.Name = "inputHeaderPanel";
+        inputHeaderPanel.Size = new Size(602, 31);
+        inputHeaderPanel.TabIndex = 0;
+        inputHeaderPanel.WrapContents = false;
+        //
         // inputLabel
         // 入力欄の説明ラベル。
         //
         inputLabel.AutoSize = true;
-        inputLabel.Dock = DockStyle.Top;
-        inputLabel.Location = new Point(0, 0);
-        inputLabel.Margin = new Padding(0, 0, 0, 8);
+        inputLabel.Location = new Point(0, 7);
+        inputLabel.Margin = new Padding(0, 7, 0, 0);
         inputLabel.Name = "inputLabel";
-        inputLabel.Padding = new Padding(0, 0, 0, 8);
-        inputLabel.Size = new Size(104, 31);
+        inputLabel.Size = new Size(59, 15);
         inputLabel.TabIndex = 0;
         inputLabel.Text = "T-SQLクエリ";
         //
@@ -506,6 +520,8 @@ partial class MainForm
         mainSplitContainer.Panel2.PerformLayout();
         ((System.ComponentModel.ISupportInitialize)mainSplitContainer).EndInit();
         mainSplitContainer.ResumeLayout(false);
+        inputHeaderPanel.ResumeLayout(false);
+        inputHeaderPanel.PerformLayout();
         findPanel.ResumeLayout(false);
         findPanel.PerformLayout();
         resultHeaderPanel.ResumeLayout(false);
