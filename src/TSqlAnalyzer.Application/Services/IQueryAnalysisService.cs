@@ -9,7 +9,7 @@ namespace TSqlAnalyzer.Application.Services;
 public interface IQueryAnalysisService
 {
     /// <summary>
-    /// T-SQL 文字列を解析し、UI 向けの中立モデルへ変換する。
+    /// SQL 文字列を解析し、UI 向けの中立モデルへ変換する。
     /// </summary>
     QueryAnalysisResult Analyze(string sql);
 }

@@ -95,13 +95,82 @@ public sealed class SqlFormattingServiceTests
     public void Format_InvalidSql_ReturnsFailureAndOriginalSql()
     {
         var formatter = new SqlFormattingService();
-        const string sql = "SELECT FROM dbo.Users";
+        const string sql = "SELECT FROM WHERE";
 
         var result = formatter.Format(sql);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(sql, result.FormattedSql);
         Assert.NotEmpty(result.ParseIssues);
+    }
+
+    /// <summary>
+    /// T-SQL として構文解析できない PostgreSQL SELECT は、PostgreSQL として整形できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Format_PostgreSqlSelectWithPublicSchemaAndLimit_ReturnsReadableMultilineSql()
+    {
+        var formatter = new SqlFormattingService();
+
+        var result = formatter.Format(
+            "select id,name from public.users where active = true order by name limit 10 offset 20");
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.ParseIssues);
+
+        var formatted = Normalize(result.FormattedSql);
+        Assert.Matches("^SELECT\\s+", formatted);
+        Assert.Matches("\\nFROM\\s+public\\.users", formatted);
+        Assert.Matches("\\nWHERE\\n\\s+active\\s*=\\s*true", formatted);
+        Assert.Matches("\\nORDER\\s+BY\\n\\s+name", formatted);
+        Assert.Matches("\\nLIMIT\\s+10", formatted);
+        Assert.Matches("\\nOFFSET\\s+20", formatted);
+        Assert.EndsWith(";", formatted, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// PostgreSQL の RETURNING 付き INSERT も整形できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Format_PostgreSqlInsertReturning_ReturnsReadableMultilineSql()
+    {
+        var formatter = new SqlFormattingService();
+
+        var result = formatter.Format(
+            "insert into public.users (id, name) values (1, 'Ada') returning id, name");
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.ParseIssues);
+
+        var formatted = Normalize(result.FormattedSql);
+        Assert.Matches("^INSERT\\s+INTO\\s+public\\.users\\s*\\(", formatted);
+        Assert.Matches("\\n\\s+id,", formatted);
+        Assert.Matches("\\nVALUES\\n\\s+\\(1, 'Ada'\\)", formatted);
+        Assert.Matches("\\nRETURNING\\n\\s+id,", formatted);
+        Assert.Contains("name", formatted, StringComparison.Ordinal);
+        Assert.EndsWith(";", formatted, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// ILIKE、PostgreSQL キャスト、interval などの固有構文も整形できることを確認する。
+    /// </summary>
+    [Fact]
+    public void Format_PostgreSqlSpecificOperators_ReturnsReadableMultilineSql()
+    {
+        var formatter = new SqlFormattingService();
+
+        var result = formatter.Format(
+            "select id from users where name ilike '%ada%' and created_at::date >= current_date - interval '7 days'");
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.ParseIssues);
+
+        var formatted = Normalize(result.FormattedSql);
+        Assert.Matches("\\nWHERE\\n", formatted);
+        Assert.Matches("\\n\\s+name\\s+ILIKE\\s+'%ada%'", formatted);
+        Assert.Matches("\\n\\s+AND\\s+created_at::date\\s+>=", formatted);
+        Assert.Contains("'7 days'::interval", formatted, StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith(";", formatted, StringComparison.Ordinal);
     }
 
     /// <summary>

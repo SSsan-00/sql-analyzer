@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="161.8901.0" />
+    <PackageReference Include="pgsqlparser" Version="1.0.0" />
   </ItemGroup>
 
   <PropertyGroup>

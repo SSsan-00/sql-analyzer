@@ -1,15 +1,17 @@
-# T-SQL解析ツール
+# Postgres/T-SQL解析ツール
 
-巨大で複雑な T-SQL クエリを、構文上の事実にもとづいて分解し、読みやすい TreeView で追えるようにする WinForms ツール。
+巨大で複雑な Postgres / T-SQL クエリを、構文上の事実にもとづいて分解し、読みやすい TreeView で追えるようにする WinForms ツール。
 
 このリポジトリは、最終的に利用者へ `exe` 配布することを見据えつつ、開発段階では `dotnet build` / `dotnet test` を回しながら育てやすい土台を用意することを目的とする。
 
 ## できること
 
-- WinForms 画面を起動し、T-SQL を貼り付けて解析できる
+- WinForms 画面を起動し、Postgres / T-SQL を貼り付けて解析できる
 - 「解析」ボタンで解析サービスを呼び出し、結果を TreeView に表示できる
 - 「クリア」ボタンで入力欄と結果表示を初期化できる
 - `Microsoft.SqlServer.TransactSql.ScriptDom` を使って T-SQL を構文解析できる
+- `pgsqlparser` を使って、T-SQL として構文解析できない PostgreSQL SQL をフォールバック解析できる
+- Postgres では SELECT / CTE / JOIN / WHERE / GROUP BY / HAVING / ORDER BY / LIMIT、基本 DML、RETURNING、CREATE VIEW / CREATE TABLE / CREATE TABLE AS を解析できる
 - 次の構造を独自モデルとして保持できる
   - SELECT
   - SELECT INTO
@@ -66,6 +68,7 @@
 - SQL 入力欄で `Ctrl+Space` による入力補助を使える
 - 入力補助では SQL キーワード、CTE 名、FROM / JOIN の別名、SELECT 別名、既出の `alias.column` 参照列を候補に出せる
 - `整形` ボタンまたは `Ctrl+Shift+F` で SQL を読みやすいレイアウトへ整形できる
+- T-SQL として整形できない SQL は、Postgres として構文解析できる場合に Postgres 用整形へフォールバックできる
 - `CASE` 式の `WHEN / THEN / ELSE` を多段表示し、分岐構造を強めに見せられる
 - 構文エラーがある SQL は `行 / 列 / メッセージ` 一覧を表示できる
 - 構文エラー一覧を選ぶと、SQL 入力欄の該当箇所を赤背景で強調して確認できる
@@ -83,7 +86,8 @@
 
 - MERGE の詳細解析
 - CREATE FUNCTION / PROCEDURE / TRIGGER / INDEX
-- CREATE TABLE AS SELECT の詳細解析
+- PostgreSQL PL/pgSQL 本体の制御フロー解析
+- PostgreSQL DDL 全般の詳細解析
 - UPDATE / INSERT / DELETE の `OUTPUT` 句詳細分解
 - INSERT ... EXECUTE の実行結果解析
 - UPDATE / DELETE 対象の別名や特殊ターゲット構文の詳細分類
@@ -511,8 +515,11 @@ dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.c
 - `src/TSqlAnalyzer.Application/TSqlAnalyzer.Application.csproj`
 - `src/TSqlAnalyzer.Application/Analysis/ISqlQueryAnalyzer.cs`
 - `src/TSqlAnalyzer.Application/Analysis/CommonTableExpressionDependencyAnalyzer.cs`
+- `src/TSqlAnalyzer.Application/Analysis/FallbackSqlQueryAnalyzer.cs`
+- `src/TSqlAnalyzer.Application/Analysis/PostgreSqlQueryAnalyzer.cs`
 - `src/TSqlAnalyzer.Application/Analysis/ScriptDomQueryAnalyzer.cs`
 - `src/TSqlAnalyzer.Application/Export/ColumnTextExportBuilder.cs`
+- `src/TSqlAnalyzer.Application/Formatting/PostgreSqlFormattingService.cs`
 - `src/TSqlAnalyzer.Application/Presentation/DisplayTreeNode.cs`
 - `src/TSqlAnalyzer.Application/Presentation/DisplayTreeExpansionPolicy.cs`
 - `src/TSqlAnalyzer.Application/Presentation/DisplayTreeNodeKindCatalog.cs`
@@ -533,6 +540,7 @@ dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.c
 
 - `TSqlAnalyzer.slnx`
 - `tests/TSqlAnalyzer.Tests/TSqlAnalyzer.Tests.csproj`
+- `tests/TSqlAnalyzer.Tests/Analysis/PostgreSqlQueryAnalyzerTests.cs`
 - `tests/TSqlAnalyzer.Tests/Analysis/QueryAnalysisServiceTests.cs`
 - `tests/TSqlAnalyzer.Tests/Export/ColumnTextExportBuilderTests.cs`
 - `tests/TSqlAnalyzer.Tests/Presentation/DisplayTreeExpansionPolicyTests.cs`

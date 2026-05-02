@@ -22,7 +22,9 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
 
-        var analysisService = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var analysisService = new QueryAnalysisService(new FallbackSqlQueryAnalyzer(
+            new ScriptDomQueryAnalyzer(),
+            new PostgreSqlQueryAnalyzer()));
         var treeBuilder = new QueryAnalysisTreeBuilder();
         var columnTextExportBuilder = new ColumnTextExportBuilder();
         var sqlFormattingService = new SqlFormattingService();

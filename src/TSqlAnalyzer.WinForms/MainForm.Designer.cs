@@ -232,9 +232,9 @@ partial class MainForm
         inputLabel.Location = new Point(0, 7);
         inputLabel.Margin = new Padding(0, 7, 0, 0);
         inputLabel.Name = "inputLabel";
-        inputLabel.Size = new Size(59, 15);
+        inputLabel.Size = new Size(123, 15);
         inputLabel.TabIndex = 0;
-        inputLabel.Text = "T-SQLクエリ";
+        inputLabel.Text = "Postgres/T-SQLクエリ";
         //
         // findPanel
         // Ctrl+F で表示する検索バー。
@@ -508,7 +508,7 @@ partial class MainForm
         MinimumSize = new Size(1040, 640);
         Name = "MainForm";
         StartPosition = FormStartPosition.CenterScreen;
-        Text = "T-SQL解析ツール";
+        Text = "Postgres/T-SQL解析ツール";
         Deactivate += MainForm_Deactivate;
         mainLayoutPanel.ResumeLayout(false);
         mainLayoutPanel.PerformLayout();

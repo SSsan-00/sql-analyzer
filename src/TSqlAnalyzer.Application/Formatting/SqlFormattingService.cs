@@ -16,6 +16,7 @@ public sealed class SqlFormattingService
     private readonly TSql160Parser _parser;
     private readonly Sql160ScriptGenerator _fallbackGenerator;
     private readonly Sql160ScriptGenerator _leafGenerator;
+    private readonly PostgreSqlFormattingService _postgreSqlFormatter;
 
     /// <summary>
     /// 整形に使うパーサーとジェネレーターを初期化する。
@@ -25,6 +26,7 @@ public sealed class SqlFormattingService
         _parser = new TSql160Parser(initialQuotedIdentifiers: false);
         _fallbackGenerator = new Sql160ScriptGenerator(CreateFallbackOptions());
         _leafGenerator = new Sql160ScriptGenerator(CreateLeafOptions());
+        _postgreSqlFormatter = new PostgreSqlFormattingService();
     }
 
     /// <summary>
@@ -42,6 +44,12 @@ public sealed class SqlFormattingService
         var fragment = _parser.Parse(reader, out IList<ParseError> parseErrors);
         if (parseErrors.Count > 0 || fragment is null)
         {
+            var postgreSqlResult = _postgreSqlFormatter.Format(sql);
+            if (postgreSqlResult.IsSuccess)
+            {
+                return postgreSqlResult;
+            }
+
             return new SqlFormatResult(
                 false,
                 sql,

@@ -8,12 +8,15 @@ src/TSqlAnalyzer.Domain/TSqlAnalyzer.Domain.csproj
 src/TSqlAnalyzer.Domain/Analysis/QueryAnalysisModels.cs
 src/TSqlAnalyzer.Application/TSqlAnalyzer.Application.csproj
 src/TSqlAnalyzer.Application/Analysis/CommonTableExpressionDependencyAnalyzer.cs
+src/TSqlAnalyzer.Application/Analysis/FallbackSqlQueryAnalyzer.cs
 src/TSqlAnalyzer.Application/Analysis/ISqlQueryAnalyzer.cs
+src/TSqlAnalyzer.Application/Analysis/PostgreSqlQueryAnalyzer.cs
 src/TSqlAnalyzer.Application/Analysis/ScriptDomQueryAnalyzer.cs
 src/TSqlAnalyzer.Application/Editor/ParseIssueTextSpanResolver.cs
 src/TSqlAnalyzer.Application/Editor/SqlInputAssistService.cs
 src/TSqlAnalyzer.Application/Export/ColumnTextExportBuilder.cs
 src/TSqlAnalyzer.Application/Formatting/SqlFormatResult.cs
+src/TSqlAnalyzer.Application/Formatting/PostgreSqlFormattingService.cs
 src/TSqlAnalyzer.Application/Formatting/SqlFormattingService.cs
 src/TSqlAnalyzer.Application/Presentation/DisplayTreeNode.cs
 src/TSqlAnalyzer.Application/Presentation/DisplayTreeExpansionPolicy.cs
