@@ -86,15 +86,13 @@ dotnet build .\TSqlAnalyzer.Runtime.slnx -c Release
 ```powershell
 dotnet publish .\src\TSqlAnalyzer.WinForms\TSqlAnalyzer.WinForms.csproj `
   -c Release `
-  -r win-x64 `
-  --self-contained true `
-  -p:PublishSingleFile=true
+  -p:PublishProfile=win-x64-singlefile
 ```
 
 ### 7. 生成された exe を起動する
 
 ```powershell
-.\src\TSqlAnalyzer.WinForms\bin\Release\net9.0-windows\win-x64\publish\TSqlAnalyzer.WinForms.exe
+.\artifacts\publish\TSqlAnalyzer\win-x64\TSqlAnalyzer.WinForms.exe
 ```
 
 ## フォルダ構成の見え方
@@ -129,14 +127,11 @@ C:\work\tsql-analyzer-bootstrap
 
 ```text
 C:\work\tsql-analyzer-bootstrap\extracted\TSqlAnalyzer
-  src
-    TSqlAnalyzer.WinForms
-      bin
-        Release
-          net9.0-windows
-            win-x64
-              publish
-                TSqlAnalyzer.WinForms.exe
+  artifacts
+    publish
+      TSqlAnalyzer
+        win-x64
+          TSqlAnalyzer.WinForms.exe
 ```
 
 ## 手順の意味を整理すると
@@ -191,26 +186,33 @@ dotnet build .\TSqlAnalyzer.Runtime.slnx -c Release
 ```powershell
 dotnet publish .\src\TSqlAnalyzer.WinForms\TSqlAnalyzer.WinForms.csproj `
   -c Release `
-  -r win-x64 `
-  --self-contained true `
-  -p:PublishSingleFile=true
+  -p:PublishProfile=win-x64-singlefile
 ```
 
 出力先:
 
-- `.\src\TSqlAnalyzer.WinForms\bin\Release\net9.0-windows\win-x64\publish\`
+- `.\artifacts\publish\TSqlAnalyzer\win-x64\`
 
 主な生成物:
 
 - `TSqlAnalyzer.WinForms.exe`
-- `TSqlAnalyzer.WinForms.pdb`
-- 必要に応じた runtime 関連ファイル
+
+`win-x64-singlefile` profile は自己完結・単一ファイル publish 用の設定を固定している。配布先 PC に .NET Runtime を事前導入しなくても起動できる。
+
+## 配布先への導入手順
+
+1. `.\artifacts\publish\TSqlAnalyzer\win-x64\TSqlAnalyzer.WinForms.exe` を配布先 PC の任意のフォルダーへ配置する
+2. 配布先 PC で `TSqlAnalyzer.WinForms.exe` を起動する
+3. Windows SmartScreen や社内セキュリティ製品の確認が出た場合は、配布元とファイル内容を確認してから実行を許可する
+
+配布先 PC に .NET Runtime や SDK を別途インストールする必要はない。ワークスペース設定は `%LocalAppData%\TSqlAnalyzer\workspace-state.json` に保存されるため、通常は管理者権限も不要。
 
 ## build / publish に必要なソース一覧
 
 bootstrap 展開物に含まれるのは次の系統。
 
 - `TSqlAnalyzer.Runtime.slnx`
+- `global.json`
 - `README.md`
 - `docs/CodeReadingGuide.md`
 - `docs/WindowsBootstrapToExe.md`
@@ -327,7 +329,7 @@ WHERE EXISTS (
 `publish` が成功していれば、既定では次に生成される。
 
 ```text
-.\src\TSqlAnalyzer.WinForms\bin\Release\net9.0-windows\win-x64\publish\TSqlAnalyzer.WinForms.exe
+.\artifacts\publish\TSqlAnalyzer\win-x64\TSqlAnalyzer.WinForms.exe
 ```
 
 ### bootstrap は通ったが WinForms が起動しない

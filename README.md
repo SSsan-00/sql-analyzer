@@ -219,7 +219,7 @@ TSqlAnalyzer.Runtime.slnx
 
 ### 前提
 
-- .NET SDK 9 以降
+- .NET SDK 9 系
 - NuGet へアクセスできる開発環境
 - 実行対象は最終的に Windows を想定
 
@@ -299,15 +299,13 @@ dotnet build .\TSqlAnalyzer.Runtime.slnx -c Release
 ```powershell
 dotnet publish .\src\TSqlAnalyzer.WinForms\TSqlAnalyzer.WinForms.csproj `
   -c Release `
-  -r win-x64 `
-  --self-contained true `
-  -p:PublishSingleFile=true
+  -p:PublishProfile=win-x64-singlefile
 ```
 
 7. 生成された `exe` を起動する
 
 ```powershell
-.\src\TSqlAnalyzer.WinForms\bin\Release\net9.0-windows\win-x64\publish\TSqlAnalyzer.WinForms.exe
+.\artifacts\publish\TSqlAnalyzer\win-x64\TSqlAnalyzer.WinForms.exe
 ```
 
 ### bootstrap の既定動作
@@ -462,30 +460,36 @@ dotnet build TSqlAnalyzer.slnx -c Release
 
 ### 配布用 publish
 
-Windows 向け自己完結・単一ファイルの `exe` を作る場合は次を使う。
+Windows 向け自己完結・単一ファイルの `exe` を作る場合は、公開プロファイル `win-x64-singlefile` を使う。
 
 ```powershell
 dotnet publish src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj `
   -c Release `
-  -r win-x64 `
-  --self-contained true `
-  -p:PublishSingleFile=true
+  -p:PublishProfile=win-x64-singlefile
 ```
 
 出力先:
 
-- `src/TSqlAnalyzer.WinForms/bin/Release/net9.0-windows/win-x64/publish/`
+- `artifacts/publish/TSqlAnalyzer/win-x64/`
 
 生成物の例:
 
 - `TSqlAnalyzer.WinForms.exe`
-- `TSqlAnalyzer.WinForms.pdb`
-- 必要に応じて runtime 設定ファイル
+
+この profile は `SelfContained=true` と `PublishSingleFile=true` を固定しているため、配布先 PC に .NET Runtime を入れずに起動できる。`PublishTrimmed=false` にしているのは、WinForms と SQL parser 依存を安全側で同梱するため。
+
+### 配布先への導入手順
+
+1. `artifacts/publish/TSqlAnalyzer/win-x64/TSqlAnalyzer.WinForms.exe` を配布先 PC の任意のフォルダーへ配置する
+2. 配布先 PC で `TSqlAnalyzer.WinForms.exe` を起動する
+3. Windows SmartScreen や社内セキュリティ製品の確認が出た場合は、配布元とファイル内容を確認してから実行を許可する
+
+配布先 PC に .NET Runtime や SDK を別途インストールする必要はない。ワークスペース設定は `%LocalAppData%\TSqlAnalyzer\workspace-state.json` に保存されるため、通常は管理者権限も不要。
 
 ### 配布前の確認
 
 1. `dotnet test TSqlAnalyzer.slnx -c Release`
-2. publish 出力先の `TSqlAnalyzer.WinForms.exe` を別ディレクトリへコピーする
+2. `artifacts/publish/TSqlAnalyzer/win-x64/TSqlAnalyzer.WinForms.exe` を別ディレクトリへコピーする
 3. その `exe` を起動し、前述の動作確認用 SQL で画面挙動を確認する
 
 ## bootstrap 再生成手順
@@ -510,6 +514,7 @@ dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.c
 ### プロダクションコードの build / publish に必須
 
 - `TSqlAnalyzer.Runtime.slnx`
+- `global.json`
 - `src/TSqlAnalyzer.Domain/TSqlAnalyzer.Domain.csproj`
 - `src/TSqlAnalyzer.Domain/Analysis/QueryAnalysisModels.cs`
 - `src/TSqlAnalyzer.Application/TSqlAnalyzer.Application.csproj`
@@ -529,6 +534,7 @@ dotnet run --project tools/BootstrapProjectGenerator/BootstrapProjectGenerator.c
 - `src/TSqlAnalyzer.Application/Services/IQueryAnalysisService.cs`
 - `src/TSqlAnalyzer.Application/Services/QueryAnalysisService.cs`
 - `src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj`
+- `src/TSqlAnalyzer.WinForms/Properties/PublishProfiles/win-x64-singlefile.pubxml`
 - `src/TSqlAnalyzer.WinForms/Program.cs`
 - `src/TSqlAnalyzer.WinForms/MainForm.cs`
 - `src/TSqlAnalyzer.WinForms/MainForm.Designer.cs`

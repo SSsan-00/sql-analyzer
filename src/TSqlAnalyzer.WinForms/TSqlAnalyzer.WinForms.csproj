@@ -13,4 +13,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <Target Name="RemoveSingleFilePublishSymbols"
+          AfterTargets="Publish"
+          Condition="'$(PublishSingleFile)' == 'true' and '$(CopyOutputSymbolsToPublishDirectory)' == 'false'">
+    <ItemGroup>
+      <SingleFilePublishSymbols Include="$(PublishDir)**/*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(SingleFilePublishSymbols)" />
+  </Target>
+
 </Project>

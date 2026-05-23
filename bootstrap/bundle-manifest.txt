@@ -1,5 +1,6 @@
 # 単一ファイル bootstrap に含める配布対象
 .gitignore
+global.json
 README.md
 TSqlAnalyzer.Runtime.slnx
 docs/CodeReadingGuide.md
@@ -30,6 +31,7 @@ src/TSqlAnalyzer.Application/Workspace/JsonWorkspaceStateStore.cs
 src/TSqlAnalyzer.Application/Workspace/WorkspaceStateManager.cs
 src/TSqlAnalyzer.Application/Workspace/WorkspaceStateModels.cs
 src/TSqlAnalyzer.WinForms/TSqlAnalyzer.WinForms.csproj
+src/TSqlAnalyzer.WinForms/Properties/PublishProfiles/win-x64-singlefile.pubxml
 src/TSqlAnalyzer.WinForms/Program.cs
 src/TSqlAnalyzer.WinForms/MainForm.cs
 src/TSqlAnalyzer.WinForms/MainForm.Workspace.cs
