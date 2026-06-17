@@ -94,4 +94,28 @@ public sealed class DisplayTreeNodeNavigatorTests
         Assert.NotNull(match);
         Assert.Equal("項目 #1: u.Id", match!.Text);
     }
+
+    [Fact]
+    public void FindBestMatch_WhenPointFallsBetweenSiblingSpans_ReturnsNearestChild()
+    {
+        var root = new DisplayTreeNode(
+            "root",
+            [
+                new DisplayTreeNode(
+                    "columns",
+                    [
+                        new DisplayTreeNode("first", [], new TextSpan(10, 6)),
+                        new DisplayTreeNode("second", [], new TextSpan(18, 6))
+                    ],
+                    new TextSpan(9, 20),
+                    DisplayTreeNodeKind.DataModification)
+            ],
+            new TextSpan(0, 40),
+            DisplayTreeNodeKind.Root);
+
+        var match = DisplayTreeNodeNavigator.FindBestMatch(root, 16, 0);
+
+        Assert.NotNull(match);
+        Assert.Equal("first", match!.Text);
+    }
 }

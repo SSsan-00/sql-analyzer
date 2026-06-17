@@ -538,9 +538,15 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
             var subqueries = new SubqueryAccumulator(_textExtractor);
             subqueries.AddRange(target.Subqueries);
 
-            var targetColumns = insertSpecification.Columns?
-                .Select(column => _textExtractor.Normalize(column))
+            var targetColumnItems = insertSpecification.Columns?
+                .Select((column, index) => new InsertTargetColumnAnalysis(
+                    index + 1,
+                    _textExtractor.Normalize(column),
+                    CreateTextSpan(column)))
                 .ToArray() ?? [];
+            var targetColumns = targetColumnItems
+                .Select(column => column.Name)
+                .ToArray();
             var insertSource = AnalyzeInsertSource(insertSpecification.InsertSource, targetColumns, subqueries);
 
             CollectImmediateSubqueries(insertSpecification.OutputClause, "OUTPUT句", subqueries);
@@ -555,7 +561,10 @@ public sealed class ScriptDomQueryAnalyzer : ISqlQueryAnalyzer
                 NormalizeOrNull(insertSpecification.OutputClause),
                 NormalizeOrNull(insertSpecification.OutputIntoClause),
                 subqueries.ToArray(),
-                CreateTextSpan(insertSpecification));
+                CreateTextSpan(insertSpecification))
+            {
+                TargetColumnItems = targetColumnItems
+            };
         }
 
         /// <summary>

@@ -104,6 +104,8 @@ public sealed class SqlFormattingService
         {
             SelectStatement selectStatement when selectStatement.QueryExpression is not null
                 => EnsureSemicolon(string.Join(Environment.NewLine, FormatSelectStatement(selectStatement, 0))),
+            InsertStatement insertStatement when insertStatement.InsertSpecification is not null
+                => EnsureSemicolon(string.Join(Environment.NewLine, FormatInsertStatement(insertStatement, 0))),
             _ => EnsureSemicolon(NormalizeGeneratedStatementText(GenerateFallbackScript(statement)))
         };
     }
@@ -129,6 +131,109 @@ public sealed class SqlFormattingService
 
         lines.AddRange(FormatQueryExpression(selectStatement.QueryExpression!, indentLevel));
         return lines;
+    }
+
+    private List<string> FormatInsertStatement(InsertStatement insertStatement, int indentLevel)
+    {
+        var lines = new List<string>();
+        AppendWithClause(lines, insertStatement.WithCtesAndXmlNamespaces, indentLevel);
+
+        var insertSpecification = insertStatement.InsertSpecification;
+        var headerParts = new List<string> { "INSERT" };
+        if (insertSpecification.TopRowFilter is not null)
+        {
+            headerParts.Add(BuildTopExpression(insertSpecification.TopRowFilter));
+        }
+
+        headerParts.Add(FormatInsertOption(insertSpecification.InsertOption) ?? "INTO");
+        lines.Add(Indent(indentLevel) + string.Join(" ", headerParts) + " " + GenerateLeafScript(insertSpecification.Target));
+
+        if (insertSpecification.Columns is { Count: > 0 } columns)
+        {
+            AppendFragmentList(lines, columns, indentLevel);
+        }
+
+        if (insertSpecification.OutputClause is not null)
+        {
+            lines.Add(Indent(indentLevel) + GenerateLeafScript(insertSpecification.OutputClause));
+        }
+
+        if (insertSpecification.OutputIntoClause is not null)
+        {
+            lines.Add(Indent(indentLevel) + GenerateLeafScript(insertSpecification.OutputIntoClause));
+        }
+
+        AppendInsertSource(lines, insertSpecification.InsertSource, indentLevel);
+        return lines;
+    }
+
+    private void AppendInsertSource(List<string> lines, InsertSource? insertSource, int indentLevel)
+    {
+        switch (insertSource)
+        {
+            case null:
+                return;
+
+            case ValuesInsertSource valuesInsertSource:
+                AppendValuesInsertSource(lines, valuesInsertSource, indentLevel);
+                return;
+
+            case SelectInsertSource { Select: QueryExpression queryExpression }:
+                lines.AddRange(FormatQueryExpression(queryExpression, indentLevel));
+                return;
+
+            default:
+                lines.Add(Indent(indentLevel) + GenerateLeafScript(insertSource));
+                return;
+        }
+    }
+
+    private void AppendValuesInsertSource(List<string> lines, ValuesInsertSource valuesInsertSource, int indentLevel)
+    {
+        if (valuesInsertSource.IsDefaultValues)
+        {
+            lines.Add(Indent(indentLevel) + "DEFAULT VALUES");
+            return;
+        }
+
+        lines.Add(Indent(indentLevel) + "VALUES");
+
+        for (var index = 0; index < valuesInsertSource.RowValues.Count; index++)
+        {
+            AppendRowValue(
+                lines,
+                valuesInsertSource.RowValues[index],
+                indentLevel,
+                appendComma: index < valuesInsertSource.RowValues.Count - 1);
+        }
+    }
+
+    private void AppendRowValue(List<string> lines, RowValue rowValue, int indentLevel, bool appendComma)
+    {
+        lines.Add(Indent(indentLevel) + "(");
+
+        for (var index = 0; index < rowValue.ColumnValues.Count; index++)
+        {
+            var valueLines = FormatScalarExpressionBlock(rowValue.ColumnValues[index], indentLevel + 1);
+            AppendCommaToLastLine(valueLines, index < rowValue.ColumnValues.Count - 1);
+            lines.AddRange(valueLines);
+        }
+
+        lines.Add(Indent(indentLevel) + ")" + (appendComma ? "," : string.Empty));
+    }
+
+    private void AppendFragmentList<TFragment>(List<string> lines, IList<TFragment> fragments, int indentLevel)
+        where TFragment : TSqlFragment
+    {
+        lines.Add(Indent(indentLevel) + "(");
+
+        for (var index = 0; index < fragments.Count; index++)
+        {
+            var suffix = index < fragments.Count - 1 ? "," : string.Empty;
+            lines.Add(Indent(indentLevel + 1) + GenerateLeafScript(fragments[index]) + suffix);
+        }
+
+        lines.Add(Indent(indentLevel) + ")");
     }
 
     /// <summary>
@@ -1296,6 +1401,14 @@ public sealed class SqlFormattingService
         }
 
         return text;
+    }
+
+    private static string? FormatInsertOption(InsertOption insertOption)
+    {
+        var text = insertOption.ToString();
+        return string.Equals(text, "None", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : text.ToUpperInvariant();
     }
 
     /// <summary>

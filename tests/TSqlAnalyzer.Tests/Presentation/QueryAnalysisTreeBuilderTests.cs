@@ -974,6 +974,43 @@ public sealed class QueryAnalysisTreeBuilderTests
     }
 
     /// <summary>
+    /// INSERT の対象列ノードが元 SQL の列名位置へ戻れることを確認する。
+    /// </summary>
+    [Fact]
+    public void Build_ForInsertTargetColumns_AssignsColumnSourceSpans()
+    {
+        var service = new QueryAnalysisService(new ScriptDomQueryAnalyzer());
+        var builder = new QueryAnalysisTreeBuilder();
+        const string sql = """
+                           INSERT INTO dbo.Users (userid, name, age)
+                           VALUES (1, 'Ada', 42);
+                           """;
+
+        var analysis = service.Analyze(sql);
+        var tree = builder.Build(analysis);
+        var columnNodes = FlattenNodes(tree)
+            .Where(node => node.Kind == DisplayTreeNodeKind.DataModification)
+            .ToArray();
+
+        Assert.Contains(columnNodes, node => CoversText(node, "userid"));
+        Assert.Contains(columnNodes, node => CoversText(node, "name"));
+        Assert.Contains(columnNodes, node => CoversText(node, "age"));
+
+        bool CoversText(DisplayTreeNode node, string expectedText)
+        {
+            if (node.SourceSpan is not { } sourceSpan)
+            {
+                return false;
+            }
+
+            return string.Equals(
+                sql.Substring(sourceSpan.Start, sourceSpan.Length),
+                expectedText,
+                StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
     /// 不要な注意点ノードを表示せず、未対応文言も短く保つことを確認する。
     /// </summary>
     [Fact]

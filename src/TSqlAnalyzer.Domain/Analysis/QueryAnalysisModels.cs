@@ -492,6 +492,11 @@ public sealed record UpdateStatementAnalysis(
         Subqueries,
         SourceSpan);
 
+public sealed record InsertTargetColumnAnalysis(
+    int Sequence,
+    string Name,
+    TextSpan? SourceSpan = null);
+
 /// <summary>
 /// INSERT 文の構造を表す。
 /// 挿入先列と入力元を分けて持たせることで、VALUES と SELECT の違いを表示しやすくする。
@@ -513,7 +518,10 @@ public sealed record InsertStatementAnalysis(
         OutputClauseText,
         OutputIntoClauseText,
         Subqueries,
-        SourceSpan);
+        SourceSpan)
+{
+    public IReadOnlyList<InsertTargetColumnAnalysis> TargetColumnItems { get; init; } = [];
+}
 
 /// <summary>
 /// DELETE 文の構造を表す。

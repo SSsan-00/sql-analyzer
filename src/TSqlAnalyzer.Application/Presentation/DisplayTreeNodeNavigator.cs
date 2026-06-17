@@ -50,9 +50,102 @@ public static class DisplayTreeNodeNavigator
             return bestChild;
         }
 
+        if (currentContainsSelection
+            && selectionSpan.Length == 0
+            && ShouldUseNearestDescendantFallback(node.Kind))
+        {
+            var nearestChild = FindNearestDescendant(node, selectionSpan.Start);
+            if (nearestChild is not null)
+            {
+                return nearestChild;
+            }
+        }
+
         return currentContainsSelection
             ? node
             : null;
+    }
+
+    private static bool ShouldUseNearestDescendantFallback(DisplayTreeNodeKind kind)
+    {
+        return kind is DisplayTreeNodeKind.Root
+            or DisplayTreeNodeKind.Section
+            or DisplayTreeNodeKind.DataModification;
+    }
+
+    private static DisplayTreeNode? FindNearestDescendant(DisplayTreeNode node, int position)
+    {
+        DisplayTreeNode? bestMatch = null;
+        foreach (var child in node.Children)
+        {
+            CollectNearestDescendant(child, position, ref bestMatch);
+        }
+
+        return bestMatch;
+    }
+
+    private static void CollectNearestDescendant(DisplayTreeNode node, int position, ref DisplayTreeNode? bestMatch)
+    {
+        if (node.SourceSpan is not null && IsBetterNearestMatch(node, bestMatch, position))
+        {
+            bestMatch = node;
+        }
+
+        foreach (var child in node.Children)
+        {
+            CollectNearestDescendant(child, position, ref bestMatch);
+        }
+    }
+
+    private static bool IsBetterNearestMatch(DisplayTreeNode candidate, DisplayTreeNode? currentBest, int position)
+    {
+        if (candidate.SourceSpan is null)
+        {
+            return false;
+        }
+
+        if (currentBest?.SourceSpan is not { } currentBestSpan)
+        {
+            return true;
+        }
+
+        var candidateDistance = GetDistanceToSpan(candidate.SourceSpan, position);
+        var currentBestDistance = GetDistanceToSpan(currentBestSpan, position);
+        if (candidateDistance != currentBestDistance)
+        {
+            return candidateDistance < currentBestDistance;
+        }
+
+        var candidateStartsBeforeOrAtPosition = candidate.SourceSpan.Start <= position;
+        var currentBestStartsBeforeOrAtPosition = currentBestSpan.Start <= position;
+        if (candidateStartsBeforeOrAtPosition != currentBestStartsBeforeOrAtPosition)
+        {
+            return candidateStartsBeforeOrAtPosition;
+        }
+
+        var candidateLength = GetSpanLength(candidate.SourceSpan);
+        var currentBestLength = GetSpanLength(currentBestSpan);
+        if (candidateLength != currentBestLength)
+        {
+            return candidateLength < currentBestLength;
+        }
+
+        return GetNavigationPriority(candidate.Kind) > GetNavigationPriority(currentBest.Kind);
+    }
+
+    private static int GetDistanceToSpan(TextSpan span, int position)
+    {
+        if (position < span.Start)
+        {
+            return span.Start - position;
+        }
+
+        if (position > span.End)
+        {
+            return position - span.End;
+        }
+
+        return 0;
     }
 
     private static bool Contains(TextSpan? candidate, TextSpan selectionSpan)

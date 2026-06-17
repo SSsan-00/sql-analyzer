@@ -73,6 +73,35 @@ public sealed class SqlFormattingServiceTests
         Assert.EndsWith(";", formatted, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Format_InsertQuery_PutsEachTargetColumnAndValueOnSeparateLines()
+    {
+        var formatter = new SqlFormattingService();
+
+        var result = formatter.Format(
+            "insert into dbo.Users(userid, name, age) values(1, 'Ada', 42)");
+
+        Assert.True(result.IsSuccess);
+
+        var lines = Normalize(result.FormattedSql).Split('\n');
+        Assert.Equal(
+            [
+                "INSERT INTO dbo.Users",
+                "(",
+                "    userid,",
+                "    name,",
+                "    age",
+                ")",
+                "VALUES",
+                "(",
+                "    1,",
+                "    'Ada',",
+                "    42",
+                ");"
+            ],
+            lines);
+    }
+
     /// <summary>
     /// 空入力はそのまま成功扱いにし、不要なエラーを出さないことを確認する。
     /// </summary>

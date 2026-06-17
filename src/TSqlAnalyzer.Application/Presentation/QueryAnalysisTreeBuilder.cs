@@ -649,12 +649,22 @@ public sealed class QueryAnalysisTreeBuilder
             return Node(DisplayTreeNodeKind.DataModification, "挿入列", Node("省略"));
         }
 
-        return Node(
+        var columnNodes = insertStatement.TargetColumnItems.Count > 0
+            ? insertStatement.TargetColumnItems
+                .Select(column => NodeWithSpan(
+                    DisplayTreeNodeKind.DataModification,
+                    $"列 #{column.Sequence}: {column.Name}",
+                    column.SourceSpan))
+                .ToArray()
+            : insertStatement.TargetColumns
+                .Select((column, index) => Node($"列 #{index + 1}: {column}"))
+                .ToArray();
+
+        return NodeWithSpan(
             DisplayTreeNodeKind.DataModification,
             "挿入列",
-            insertStatement.TargetColumns
-                .Select((column, index) => Node($"列 #{index + 1}: {column}"))
-                .ToArray());
+            MergeSpans(columnNodes.Select(column => column.SourceSpan)),
+            columnNodes);
     }
 
     /// <summary>
