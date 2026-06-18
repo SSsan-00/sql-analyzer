@@ -102,6 +102,23 @@ public sealed class SqlFormattingServiceTests
             lines);
     }
 
+    [Fact]
+    public void Format_SelectHavingQuery_BreaksHavingConditionsAcrossLines()
+    {
+        var formatter = new SqlFormattingService();
+
+        var result = formatter.Format(
+            "select u.id,count(*) from dbo.Users u group by u.id having count(*) > 1 and sum(u.age) > 10");
+
+        Assert.True(result.IsSuccess);
+
+        var formatted = Normalize(result.FormattedSql);
+        Assert.Matches("\\nHAVING\\n", formatted);
+        Assert.Matches("(?i)\\n\\s+count\\s*\\(\\*\\)\\s*>\\s*1", formatted);
+        Assert.Matches("(?i)\\n\\s+AND\\s+sum\\s*\\(u\\.age\\)\\s*>\\s*10", formatted);
+        Assert.DoesNotMatch("(?i)HAVING\\s+count\\s*\\(\\*\\).*AND\\s+sum", formatted);
+    }
+
     /// <summary>
     /// 空入力はそのまま成功扱いにし、不要なエラーを出さないことを確認する。
     /// </summary>
@@ -174,10 +191,58 @@ public sealed class SqlFormattingServiceTests
         var formatted = Normalize(result.FormattedSql);
         Assert.Matches("^INSERT\\s+INTO\\s+public\\.users\\s*\\(", formatted);
         Assert.Matches("\\n\\s+id,", formatted);
-        Assert.Matches("\\nVALUES\\n\\s+\\(1, 'Ada'\\)", formatted);
+        Assert.Matches("\\nVALUES\\n\\(\\n\\s+1,\\n\\s+'Ada'\\n\\)", formatted);
         Assert.Matches("\\nRETURNING\\n\\s+id,", formatted);
         Assert.Contains("name", formatted, StringComparison.Ordinal);
         Assert.EndsWith(";", formatted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Format_PostgreSqlInsert_BreaksTargetsAndValuesAcrossLines()
+    {
+        var formatter = new SqlFormattingService();
+
+        var result = formatter.Format(
+            "insert into public.users (id, name, age) values (1, 'Ada', 42)");
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.ParseIssues);
+
+        var lines = Normalize(result.FormattedSql).Split('\n');
+        Assert.Equal(
+            [
+                "INSERT INTO public.users",
+                "(",
+                "    id,",
+                "    name,",
+                "    age",
+                ")",
+                "VALUES",
+                "(",
+                "    1,",
+                "    'Ada',",
+                "    42",
+                ");"
+            ],
+            lines);
+    }
+
+    [Fact]
+    public void Format_PostgreSqlHavingQuery_BreaksHavingConditionsAcrossLines()
+    {
+        var formatter = new SqlFormattingService();
+
+        var result = formatter.Format(
+            "select user_id, count(*) from public.orders group by user_id having count(*) > 1 and sum(amount) > 100");
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.ParseIssues);
+
+        var formatted = Normalize(result.FormattedSql);
+        Assert.Matches("\\nHAVING\\n", formatted);
+        Assert.Matches("(?i)\\n\\s+count\\s*\\(\\*\\)\\s*>\\s*1", formatted);
+        Assert.Matches("(?i)\\n\\s+AND\\s+sum\\s*\\(amount\\)\\s*>\\s*100", formatted);
+        Assert.DoesNotMatch("(?i)HAVING\\s+count\\s*\\(\\*\\).*AND\\s+sum", formatted);
     }
 
     /// <summary>

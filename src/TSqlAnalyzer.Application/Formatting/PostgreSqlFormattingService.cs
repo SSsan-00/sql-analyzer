@@ -100,7 +100,7 @@ internal sealed class PostgreSqlFormattingService
 
         if (insertStatement.Cols.Count > 0)
         {
-            lines[^1] += " (";
+            lines.Add(Indent(indentLevel) + "(");
             for (var index = 0; index < insertStatement.Cols.Count; index++)
             {
                 var suffix = index < insertStatement.Cols.Count - 1 ? "," : string.Empty;
@@ -226,10 +226,17 @@ internal sealed class PostgreSqlFormattingService
         for (var index = 0; index < valuesLists.Count; index++)
         {
             var values = valuesLists[index].NodeCase == PgNode.NodeOneofCase.List
-                ? valuesLists[index].List.Items.Select(DeparseExpression)
+                ? valuesLists[index].List.Items.Select(DeparseExpression).ToArray()
                 : [DeparseExpression(valuesLists[index])];
             var suffix = index < valuesLists.Count - 1 ? "," : string.Empty;
-            lines.Add(Indent(indentLevel + 1) + "(" + string.Join(", ", values) + ")" + suffix);
+            lines.Add(Indent(indentLevel) + "(");
+            for (var valueIndex = 0; valueIndex < values.Length; valueIndex++)
+            {
+                var valueSuffix = valueIndex < values.Length - 1 ? "," : string.Empty;
+                lines.Add(Indent(indentLevel + 1) + values[valueIndex] + valueSuffix);
+            }
+
+            lines.Add(Indent(indentLevel) + ")" + suffix);
         }
 
         return lines;
